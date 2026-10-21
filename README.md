@@ -40,3 +40,9 @@ node --test tests/*.test.cjs
 ```
 
 Os testes verificam geração das 48 fases, colisões, salto variável, corrida, transformações, progressão, salvamento, renderização e agendamento/controle do áudio. A inspeção do navegador cobre início, mapa, entrada na fase e pausa; não equivale a uma campanha inteira concluída manualmente nem a uma comparação auditiva com o jogo original.
+
+## Atualização visual e áudio local
+
+A renderização usa uma superfície de 1536×1024 para o mesmo espaço de jogo de 384×256. Isso permite sprites do Mario com detalhes em meios pixels lógicos e texto mais nítido, sem alterar colisões, saltos ou progresso. Os cenários têm nuvens com rosto, colinas arredondadas, painéis com rebites, chão sem repetição de grama nas camadas inferiores e paisagens específicas por ambiente.
+
+Em **Usar meu arquivo de música**, selecione MP3, OGG, WAV ou outro áudio compatível com seu navegador. A faixa substitui a música sintetizada durante a sessão e respeita pausa, volume e silêncio; os efeitos continuam funcionando. Não há upload nem armazenamento do arquivo no servidor. Reabra o arquivo após recarregar a página. A gravação original de Super Mario Bros. não está incluída; sua incorporação ao site depende de um arquivo fornecido com autorização de uso.

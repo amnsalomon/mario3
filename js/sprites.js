@@ -1,6 +1,7 @@
 /* Native pixel-art assets. All positions are TOP-LEFT; dimensions are unscaled pixels.
  * draw(ctx,type,x,y,{frame,facing,scale,theme,part,color,flash})
  * drawMario(ctx,x,y,{power,frame,state,facing,star,hidden,scale})
+ * Mario is hand drawn at 2x density (32x32 / 32x56); each art pixel is 0.5 logical units.
  * Mario's big/raccoon/fire drawing always occupies a 16x28 box, including ducking.
  * Only fillRect and fillStyle are required from the Canvas context. */
 (() => {
@@ -8,7 +9,7 @@
   const INK='#202437',PALETTE={
     k:INK,R:'#df4037',r:'#9d282d',H:'#ff8060',S:'#ffc49a',s:'#de8c63',h:'#60352d',
     B:'#3569bd',b:'#24427b',C:'#8baedc',W:'#fff3d5',w:'#cfdbc9',Y:'#ffd85d',y:'#c38a36',
-    G:'#55a64b',g:'#29683f',L:'#a5d86e',O:'#eaa14b',o:'#a96735',P:'#dc94bc',p:'#a44f86'
+    F:'#ffe3bb',d:'#38272c',t:'#aa6a3d',G:'#55a64b',g:'#29683f',L:'#a5d86e',O:'#eaa14b',o:'#a96735',P:'#dc94bc',p:'#a44f86'
   };
   class Pixels{
     constructor(w,h){this.w=w;this.h=h;this.rows=Array.from({length:h},()=>Array(w).fill('.'));}
@@ -26,60 +27,120 @@
     stamp(rows,x=0,y=0){rows.forEach((row,j)=>[...row].forEach((v,i)=>{if(v!=='.')this.rect(x+i,y+j,1,1,v);}));return this;}
     outline(){const before=this.rows.map(r=>r.slice());for(let y=0;y<this.h;y++)for(let x=0;x<this.w;x++)if(before[y][x]==='.'&&[[x-1,y],[x+1,y],[x,y-1],[x,y+1]].some(([xx,yy])=>before[yy]?.[xx]&&before[yy][xx]!=='.'))this.rows[y][x]='k';return this;}
   }
-  function smallMario(frame,state){
-    const p=new Pixels(16,16);p.stamp([
-      '.....RRRRRR.....','....RRRRRRRRR...','....hhSSSkS.....','...hShSSSkkSS...',
-      '...hShhSSSkSSS..','...hhSSSSkkkk...','.....SSSSSS.....','....RRBRRBR.....',
-      '...RRRBRRBRRR...','...SSSBBBBSSS...','...SSBBYBYBSS...','.....BBBBBB.....'
-    ]);
-    if(state==='dead'){
-      p.rect(2,7,3,3,'W').rect(12,7,3,3,'W').rect(6,3,1,2,'k').rect(10,3,1,2,'k');
-      p.rect(4,12,3,2,'B').rect(10,12,3,2,'B').rect(2,14,5,2,'h').rect(10,14,5,2,'h');
-    }else if(state==='jump'||state==='fly'){
-      p.rect(2,6,3,2,'W').rect(12,5,2,2,'W').rect(5,12,4,2,'B').rect(9,11,4,2,'B');
-      p.rect(3,14,5,2,'h').rect(10,12,5,2,'h');
-    }else if(state==='walk'&&frame%3===1){
-      p.rect(4,12,4,2,'B').rect(9,12,4,3,'B').rect(1,13,6,2,'h').rect(10,15,5,1,'h');
-    }else if(state==='walk'&&frame%3===2){
-      p.rect(6,12,4,3,'B').rect(10,12,3,1,'B').rect(5,15,6,1,'h').rect(11,13,4,2,'h');
-    }else{
-      p.rect(4,12,4,2,'B').rect(9,12,4,2,'B').rect(3,14,5,2,'h').rect(9,14,5,2,'h');
+  // Mario is authored on a double-density grid, not enlarged from the old sprites.
+  // The renderer maps each of these pixels to 0.5 logical units.
+  function glove(p,x,y,raised=false){
+    p.poly([[x+1,y],[x+5,y],[x+6,y+2],[x+6,y+5],[x+4,y+7],[x+1,y+6],[x,y+3]],'W');
+    p.rect(x+1,y+5,4,1,'w').rect(x+2,y+1,1,2,'F');
+    if(raised)p.rect(x+1,y+1,4,1,'w');else p.rect(x+4,y+2,1,3,'w');
+  }
+  function shoe(p,x,y,w=10,h=5){
+    p.poly([[x+2,y],[x+w-3,y],[x+w,y+2],[x+w,y+h],[x,y+h],[x,y+2]],'h');
+    p.rect(x+2,y+1,Math.max(2,w-4),1,'t').rect(x,y+h-1,w,1,'d');
+  }
+  function marioHead(p,y,small,raccoon,dead=false){
+    const sy=small?.7:1;
+    const r=(x,yy,w,h,c)=>p.rect(x,Math.round(y+yy*sy),w,Math.max(1,Math.round(h*sy)),c);
+    const poly=(pts,c)=>p.poly(pts.map(([x,yy])=>[x,Math.round(y+yy*sy)]),c);
+    // Hair, ear and a rounded cheek are distinct from the projecting nose.
+    poly([[9,10],[14,8],[23,10],[25,15],[29,16],[30,19],[28,22],[24,23],[24,25],[16,25],[12,22],[9,17]],'S');
+    poly([[9,10],[16,10],[15,14],[13,14],[13,20],[10,19],[8,15]],'h');
+    r(9,11,3,5,'d');r(18,12,6,4,'F');r(21,16,3,5,'F');
+    r(12,16,3,5,'S');r(12,17,1,2,'s');r(13,20,2,2,'s');
+    r(26,17,3,3,'F');r(28,19,2,2,'s');r(18,24,5,1,'s');
+    r(20,12,4,6,'W');r(22,13,2,5,'k');r(22,14,1,2,'b');r(20,11,5,1,'h');
+    // Three lobes give the moustache its familiar silhouette at half-pixel scale.
+    poly([[18,19],[21,19],[22,20],[24,19],[24,21],[28,21],[27,23],[24,23],[23,22],[21,24],[18,23],[17,21]],'h');
+    r(19,21,2,1,'d');r(24,22,3,1,'d');
+    if(raccoon){
+      poly([[6,7],[5,1],[8,0],[13,5]],'h');poly([[22,4],[25,0],[28,1],[27,8]],'h');
+      poly([[7,5],[7,2],[10,5]],'O');poly([[24,5],[26,2],[26,6]],'O');
     }
-    return p.outline();
+    // Rounded crown, raised front, separate brim and a tiny embroidered M.
+    poly([[8,9],[9,5],[12,2],[18,1],[23,2],[26,5],[26,10]],'R');
+    r(10,5,2,4,'r');r(13,3,8,1,'H');r(12,4,2,1,'H');r(11,8,8,2,'r');
+    poly([[18,9],[29,9],[31,11],[28,13],[19,12],[17,11]],'R');r(20,9,8,1,'H');r(22,12,6,1,'r');
+    r(20,4,5,5,'W');r(19,5,1,3,'W');
+    r(20,5,1,3,'R');r(24,5,1,3,'R');r(21,6,1,1,'R');r(23,6,1,1,'R');r(22,7,1,1,'R');
+    if(dead){r(20,13,4,1,'h');r(21,12,1,3,'h');r(23,14,1,2,'h');r(23,23,2,1,'h');}
+  }
+  function smallMario(frame,state){
+    const p=new Pixels(32,32);p.density=2;
+    const airborne=state==='jump'||state==='fly',step=state==='walk'?frame%3:0;
+    // Bent arms and asymmetric hand positions keep the running pose readable.
+    p.poly([[10,17],[24,17],[27,20],[26,25],[8,25],[6,21]],'R');
+    p.rect(9,18,3,5,'H').rect(22,19,4,4,'r');
+    if(airborne||state==='dead'){p.rect(4,15,5,7,'R');glove(p,2,11,true);glove(p,25,20);}
+    else{glove(p,5,20+Number(step===1));glove(p,25,18+Number(step===2));}
+    p.poly([[12,18],[15,18],[15,21],[21,21],[21,18],[24,18],[24,26],[10,26],[10,21],[12,21]],'B');
+    p.rect(12,21,2,2,'Y').rect(22,21,2,2,'Y').rect(14,24,7,1,'C').rect(10,25,14,1,'b');
+    if(airborne||state==='dead'){
+      p.poly([[10,25],[17,25],[16,29],[8,29]],'B');p.rect(21,24,6,3,'B');
+      shoe(p,4,28,11,3);shoe(p,23,25,8,4);
+    }else if(step===1){
+      p.poly([[10,25],[17,25],[14,29],[7,29]],'B');p.rect(20,25,5,5,'B');
+      shoe(p,2,28,12,3);shoe(p,21,29,10,3);
+    }else if(step===2){
+      p.rect(13,25,7,5,'B').rect(21,25,4,2,'B');shoe(p,10,29,12,3);shoe(p,24,26,7,4);
+    }else{
+      p.rect(10,25,6,4,'B').rect(20,25,6,4,'B').rect(10,25,2,4,'b');
+      shoe(p,7,28,10,4);shoe(p,20,28,11,4);
+    }
+    marioHead(p,0,true,false,state==='dead');return p.outline();
   }
   function bigMario(frame,state,power){
-    const p=new Pixels(16,28),duck=state==='duck',headY=duck?8:1,raccoon=power==='raccoon'||power==='tanooki';
-    if(raccoon){p.rect(3,headY,3,3,'o').rect(11,headY-1,3,4,'o').rect(4,headY,1,2,'Y').rect(12,headY,1,2,'Y');}
-    p.rect(5,headY+1,7,3,'R').rect(4,headY+4,10,2,'R').rect(6,headY+1,5,1,'H');
-    p.rect(10,headY+2,2,2,'W').rect(10,headY+2,1,1,'R');
-    p.rect(5,headY+6,3,5,'h').rect(8,headY+6,5,7,'S').rect(13,headY+8,2,3,'S');
-    p.rect(6,headY+8,2,3,'S').rect(11,headY+7,1,2,'k').rect(10,headY+11,5,2,'h').rect(8,headY+13,5,1,'S');
+    const p=new Pixels(32,56);p.density=2;
+    const duck=state==='duck',airborne=state==='jump',flying=state==='fly';
+    const raccoon=power==='raccoon'||power==='tanooki',step=state==='walk'?frame%3:0;
+    const headY=duck?17:2;
+    // The striped tail is behind the body and occupies the same collision-neutral box.
+    if(raccoon){
+      const y=duck?43:36;
+      p.poly([[10,y+7],[5,y+5],[1,y],[0,y-6],[3,y-8],[6,y-4],[5,y],[11,y+2]],'O');
+      p.poly([[1,y-5],[5,y-5],[6,y-2],[2,y-2]],'h');p.poly([[4,y+1],[8,y+2],[8,y+5],[5,y+4]],'h');
+      p.rect(1,y-6,2,1,'Y');
+      if(state==='tail'){p.poly([[2,y-4],[11,y-2],[12,y+2],[1,y+1],[0,y-2]],frame%2?'O':'h');p.rect(1,y-2,3,1,'Y');}
+    }
     if(duck){
-      p.rect(5,22,8,3,'R').rect(5,24,8,2,'B').rect(3,23,3,2,'W').rect(12,23,3,2,'W');
-      p.rect(3,26,6,2,'h').rect(9,26,6,2,'h');
+      p.poly([[10,42],[25,42],[28,47],[26,51],[7,51],[6,47]],'R');p.rect(10,47,15,5,'B');
+      p.rect(12,46,2,2,'Y').rect(23,46,2,2,'Y').rect(12,50,10,1,'C');
+      glove(p,4,45);glove(p,25,44);shoe(p,5,51,12,5);shoe(p,20,51,11,5);
     }else{
-      p.rect(5,15,8,6,'R').rect(3,16,3,6,'R').rect(12,16,2,5,'R');
-      p.rect(6,16,2,5,'B').rect(10,16,2,5,'B').rect(5,20,8,4,'B').rect(6,20,1,1,'Y').rect(11,20,1,1,'Y');
-      p.rect(3,21,3,3,'W').rect(12,20,3,3,'W');p.rect(8,21,2,2,'C');
-      if(state==='jump'||state==='fly'){
-        p.rect(2,14,3,5,'R').rect(1,12,3,3,'W').rect(12,12,2,6,'R').rect(12,10,3,3,'W');
-        p.rect(4,23,5,3,'B').rect(10,23,4,2,'B').rect(2,26,6,2,'h').rect(11,24,5,2,'h');
-      }else if(state==='walk'&&frame%3===1){
-        p.rect(4,23,5,2,'B').rect(10,23,3,4,'B').rect(1,25,6,2,'h').rect(10,27,5,1,'h');
-      }else if(state==='walk'&&frame%3===2){
-        p.rect(7,23,4,4,'B').rect(10,23,3,1,'B').rect(6,27,6,1,'h').rect(11,24,5,2,'h');
+      // Red sleeves and white gloves are separate silhouettes, with moving elbows.
+      if(airborne||state==='dead'){
+        p.poly([[10,29],[7,30],[5,25],[4,23],[1,25],[3,33],[9,37]],'R');glove(p,1,18,true);
+        p.poly([[23,29],[27,28],[28,24],[31,25],[30,34],[25,37]],'R');glove(p,25,20,true);
+      }else if(flying){
+        p.poly([[10,29],[4,29],[1,31],[1,35],[10,36]],'R');glove(p,0,30);
+        p.poly([[23,29],[29,29],[31,31],[30,36],[23,36]],'R');glove(p,25,31);
       }else{
-        p.rect(5,23,4,3,'B').rect(10,23,4,3,'B').rect(4,26,5,2,'h').rect(10,26,5,2,'h');
+        const leftY=step===1?31:33,rightY=step===2?31:33;
+        p.poly([[10,29],[6,leftY],[5,leftY+7],[9,leftY+9],[12,36]],'R');p.rect(6,leftY+2,2,4,'H');glove(p,4,leftY+6);
+        p.poly([[23,29],[27,rightY],[29,rightY+6],[25,rightY+9],[22,36]],'r');glove(p,24,rightY+5);
+      }
+      p.poly([[11,28],[23,28],[26,34],[25,43],[9,43],[8,34]],'R');
+      p.rect(10,30,4,8,'H').rect(22,30,3,9,'r');
+      p.poly([[12,29],[15,29],[15,36],[21,36],[21,29],[24,29],[25,44],[9,44],[10,36],[12,36]],'B');
+      p.rect(12,30,1,7,'C').rect(22,30,1,7,'C').rect(11,37,3,3,'Y').rect(22,37,3,3,'Y');
+      p.rect(12,37,1,1,'W').rect(23,37,1,1,'W');p.rect(10,41,14,2,'b').rect(14,40,7,1,'C');
+      if(airborne||state==='dead'){
+        p.poly([[10,43],[17,43],[17,49],[10,50],[6,48]],'B');p.rect(7,46,3,3,'b');
+        p.poly([[20,43],[25,43],[29,46],[27,49],[22,49],[20,46]],'B');p.rect(23,46,5,1,'C');
+        shoe(p,3,50,13,5);shoe(p,23,47,9,5);
+      }else if(step===1){
+        p.poly([[10,43],[17,43],[16,48],[10,51],[5,50],[7,47]],'B');p.rect(7,48,3,2,'b');
+        p.poly([[20,43],[25,43],[25,52],[21,53],[19,49]],'B');p.rect(21,45,2,5,'C');
+        shoe(p,1,49,12,5);shoe(p,21,51,11,5);
+      }else if(step===2){
+        p.poly([[12,43],[19,43],[20,51],[16,53],[11,51]],'B');p.rect(12,45,2,5,'b');
+        p.poly([[21,43],[26,43],[27,46],[24,49],[20,48]],'B');
+        shoe(p,9,51,13,5);shoe(p,23,46,9,5);
+      }else{
+        p.rect(10,43,7,9,'B').rect(20,43,6,9,'B').rect(10,43,2,8,'b').rect(21,44,2,6,'C');
+        shoe(p,7,51,11,5);shoe(p,20,51,12,5);
       }
     }
-    if(raccoon){
-      const y=duck?22:20;
-      p.rect(1,y-3,2,4,'o').rect(2,y-1,3,4,'O').rect(3,y+1,3,3,'o');
-      p.rect(1,y-2,2,1,'h').rect(2,y,3,1,'h').rect(4,y+2,2,1,'h');
-      if(state==='tail')p.rect(0,y-2,6,3,frame%2?'O':'h').rect(0,y-2,2,1,'Y');
-    }
-    if(state==='dead')p.rect(10,headY+7,3,1,'k').rect(11,headY+6,1,3,'k');
-    return p.outline();
+    marioHead(p,headY,false,raccoon,state==='dead');return p.outline();
   }
   function goomba(frame){
     const p=new Pixels(16,16);p.poly([[5,1],[11,1],[15,8],[14,12],[2,12],[1,8]],'o');
@@ -202,6 +263,7 @@
   }
   function palette(type,options){
     const p={...PALETTE},theme=options.theme;
+    if(type==='mario'){p.C='#6891cf';p.B='#3769b9';p.b='#24427b';}
     if(type==='mario'&&['raccoon','tanooki'].includes(options.power)){p.R='#bf773f';p.r='#70402d';p.H='#e6a052';p.B='#b37843';p.b='#70402d';p.C='#d7a05b';}
     if(type==='mario'&&options.power==='fire'){p.R='#fff0d1';p.r='#cbbb9b';p.H='#fffaf1';p.B='#df4037';p.b='#9d282d';p.C='#ff8761';}
     if(type==='castle'||(type==='ground'&&(theme==='castle'||theme==='lava'))){p.O='#8d95a3';p.o='#555e74';p.Y='#c4c8d0';}
@@ -233,7 +295,7 @@
     const opts={...options,power,state,frame,part:String(options.part||'').toLowerCase().replace(/[^a-z]/g,'')};
     const key=[type,frame,power,state,opts.theme||'',opts.part].join('|');let art=cache.get(key);
     if(!art){art=build(type,frame,opts);if(cache.size<1400)cache.set(key,art);}
-    const colors=palette(type,opts),scale=Number.isFinite(options.scale)&&options.scale>0?options.scale:1,flip=options.facing===-1;
+    const colors=palette(type,opts),scale=(Number.isFinite(options.scale)&&options.scale>0?options.scale:1)/(art.density||1),flip=options.facing===-1;
     x=Math.round(x);y=Math.round(y);
     art.rows.forEach((row,j)=>{
       for(let i=0;i<art.w;){const symbol=row[i];let end=i+1;while(end<art.w&&row[end]===symbol)end++;
