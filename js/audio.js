@@ -86,7 +86,8 @@
     flame:[tone(0,.22,1,1,'noise',.05),tone(0,.2,200,90,'triangle',.06)],
     orb:sequence(['E6','C6','G6'],.07,'triangle',.07),
     tick:[tone(0,.03,1760,1760,'square',.025)],
-    gameover:sequence(['C5','G4','E4','A4','B4','A4','Ab4','Bb4','Ab4','G4','F4','G4'],.16,'square',.07)
+    gameover:sequence(['C5','G4','E4','A4','B4','A4','Ab4','Bb4','Ab4','G4','F4','G4'],.16,'square',.07),
+    cheat:sequence(['C6','E6','G6','B6','D7'],.06,'triangle',.07)
   };
   const STINGERS=new Set(['death','clear','worldClear','victory','gameover']);
   const RATE_LIMIT={jump:.045,coin:.04,stomp:.04,kick:.05,fire:.07,tail:.09,fly:.12,bump:.07,tick:.05,swim:.06,cannon:.2};

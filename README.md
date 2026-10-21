@@ -1,6 +1,6 @@
 # Mario 3 — aventura para o navegador
 
-Recriação independente inspirada em Super Mario Bros. 3, feita com Canvas 2D e Web Audio. Funciona como site estático no GitHub Pages, sem instalação, bibliotecas externas ou ROM.
+Recriação independente inspirada em Super Mario Bros. 3, feita com Canvas 2D e Web Audio. Funciona como site estático no GitHub Pages, sem instalação, bibliotecas externas ou ROM, no computador e no celular deitado.
 
 ## O que está incluído
 
@@ -19,7 +19,10 @@ Recriação independente inspirada em Super Mario Bros. 3, feita com Canvas 2D e
   - game over recomeça o mundo, mantendo as fortalezas destruídas.
 - **Chefes**: o das fortalezas, naves e tanques cai com 3 pisões e solta uma esfera que encerra a fase. No castelo final, o Bowser quebra o chão de tijolos ao cair com força.
 - Canos secretos com sala bônus, blocos invisíveis, cascos carregáveis, canhões que atiram (e podem ser pisados), plantas que saem dos canos.
-- Teclado, botões de toque (com layout próprio para celular deitado), controle de videogame, pausa e tela cheia.
+- **Gráficos HD em tela larga (16:9)**: céus em degradê, cenários em camadas com paralaxe, blocos, canos, moedas, chão, lava, água, gelo e efeitos desenhados em vetor. A resolução acompanha a tela (até 3584×2048 em telas de alta densidade) e os desenhos ficam em cache, então o jogo continua leve. Mario, inimigos e itens mantêm a pixel art do projeto, só que mais nítida.
+- **Códigos secretos** digitados num campo escondido (Ç ou ; no teclado; segurar START no celular): pular fase ou mundo, ganhar itens e vidas, voar sempre, tiros especiais e invencibilidade. Os códigos valem só na sessão atual.
+- **Celular**: na vertical aparece um aviso para girar o aparelho; na horizontal, o jogo ocupa o centro e os botões ficam nas laterais. Tela cheia no primeiro toque, deslizar o dedo entre botões, respeito ao entalhe da tela e instalação como app pela tela inicial (manifesto PWA e ícones).
+- Teclado, botões de toque, controle de videogame, pausa e tela cheia.
 
 As fases, os cenários e as trilhas sintetizadas foram produzidos para este projeto. Os desenhos de fase não copiam os mapas originais. Personagens e nomes pertencem aos respectivos titulares; projeto não oficial.
 
@@ -35,6 +38,7 @@ As fases, os cenários e as trilhas sintetizadas foram produzidos para este proj
 | Pausar | P ou Esc | Start |
 | Som | M | — |
 | Tela cheia | F | — |
+| Campo de código secreto | Ç ou ; | segurar Start (celular) |
 
 Com a Folha, corra até encher o P, pule e aperte pular repetidamente para voar. Na queda, toque pular várias vezes para planar.
 
@@ -62,14 +66,16 @@ Com Node.js instalado:
 node --test tests/*.test.cjs
 ```
 
-São 46 testes. Eles cobrem:
+São 54 testes. Eles cobrem:
 
 - geração e validação das 48 fases;
 - velocidades, pulo e medidor P;
 - regras de dano, power-ups, pontuação em cadeia, relógio, cartas e Casa do Toad;
 - mapa, save e game over;
 - sala bônus, canos de atalho, areia movediça, água, rolagem automática e chefes;
-- áudio, música em arquivo e renderização.
+- códigos secretos;
+- áudio, música em arquivo e renderização;
+- toda a arte HD desenhada num canvas de teste rigoroso, em várias resoluções.
 
 O teste `playability` usa um robô de busca com a física real do jogo para provar que as 48 fases podem ser completadas (leva cerca de 30 segundos). Para rodá-lo sozinho e ver o resultado de cada fase: `node tests/bot.cjs`.
 
@@ -80,9 +86,11 @@ O teste `playability` usa um robô de busca com a física real do jogo para prov
 | `js/levels.js` | Gerador determinístico das fases e da sala bônus |
 | `js/engine.js` | Física, regras, mapa, Casa do Toad, chefes e save |
 | `js/sprites.js` | Desenhos em pixel art feitos por código, com cache de imagens |
-| `js/scenery.js` | Cenários de fundo em camadas |
+| `js/hd.js` | Arte HD em vetor: chão, blocos, canos, moedas, efeitos, elementos do mapa |
+| `js/scenery.js` | Céus e cenários HD em camadas com paralaxe |
 | `js/renderer.js` | Desenho da fase, do mapa, da Casa do Toad e do HUD |
 | `js/audio.js` | Trilhas e efeitos sintetizados |
 | `js/tracks.js` e `js/music-config.js` | Faixas em arquivo da pasta `music/` |
 | `js/local-music.js` | Arquivo de música escolhido pelo jogador |
-| `js/app.js` | Controles, interface e salvamento |
+| `js/app.js` | Controles, resolução, campo de código, toque e salvamento |
+| `manifest.webmanifest` e `icons/` | Instalação como app no celular |

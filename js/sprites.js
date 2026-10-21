@@ -335,19 +335,25 @@
   }
   // Cada desenho vira uma imagem pronta na primeira vez (cache), em vez de milhares de retângulos por quadro.
   const bitmaps=new Map();
+  let deviceScale=4,canvasFactory=null;
   function makeCanvas(w,h){
     try{
+      if(canvasFactory)return canvasFactory(w,h);
       if(typeof OffscreenCanvas!=='undefined')return new OffscreenCanvas(w,h);
       if(globalThis.document&&typeof document.createElement==='function'){const c=document.createElement('canvas');c.width=w;c.height=h;return c;}
     }catch{}
     return null;
   }
+  // Escala real da tela (pixels de dispositivo por pixel lógico). Ao mudar, as imagens são refeitas nítidas.
+  function setScale(s){const n=Math.max(1,Math.round(Number(s)||4));if(n!==deviceScale){deviceScale=n;bitmaps.clear();}}
+  function setCanvasFactory(fn){canvasFactory=typeof fn==='function'?fn:null;bitmaps.clear();}
   function rasterize(art,colors,flip,flipY){
-    const r=4/(art.density||1),cv=makeCanvas(Math.ceil(art.w*r),Math.ceil(art.h*r));
+    const r=deviceScale/(art.density||1),cv=makeCanvas(Math.ceil(art.w*r),Math.ceil(art.h*r));
     if(!cv)return null;const g=cv.getContext('2d');if(!g)return null;
+    const px=v=>Math.round(v*r);
     art.rows.forEach((row,j)=>{
       for(let i=0;i<art.w;){const symbol=row[i];let end=i+1;while(end<art.w&&row[end]===symbol)end++;
-        if(symbol!=='.'){g.fillStyle=colors[symbol]||INK;const xx=flip?art.w-end:i,yy=flipY?art.h-1-j:j;g.fillRect(xx*r,yy*r,(end-i)*r,r);}i=end;}
+        if(symbol!=='.'){g.fillStyle=colors[symbol]||INK;const xx=flip?art.w-end:i,yy=flipY?art.h-1-j:j;g.fillRect(px(xx),px(yy),px(xx+end-i)-px(xx),px(yy+1)-px(yy));}i=end;}
     });
     return cv;
   }
@@ -373,5 +379,5 @@
     });
   }
   function drawMario(ctx,x,y,options={}){draw(ctx,'mario',x,y,options);}
-  globalThis.MarioSprites=Object.freeze({draw,drawMario,dimensions,makeCanvas,types:Object.freeze([...known])});
+  globalThis.MarioSprites=Object.freeze({draw,drawMario,dimensions,makeCanvas,setScale,setCanvasFactory,get scale(){return deviceScale;},types:Object.freeze([...known])});
 })();

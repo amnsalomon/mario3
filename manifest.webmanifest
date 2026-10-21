@@ -1,0 +1,14 @@
+{
+  "name": "Mario 3 · Aventura em 8 mundos",
+  "short_name": "Mario 3",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#05080f",
+  "theme_color": "#19243b",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

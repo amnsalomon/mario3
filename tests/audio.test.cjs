@@ -51,7 +51,7 @@ test('seven distinct looping compositions and all event effects contain valid mu
   signatures.add(t.lead.join(','));
  }
  assert.equal(signatures.size,names.length);
- const events=['jump','coin','bump','break','stomp','kick','powerup','powerdown','oneup','fire','tail','fly','pipe','death','clear','worldClear','victory','pause','select','hurry','swim','sprout','cannon','flame','orb','tick','gameover'];
+ const events=['jump','coin','bump','break','stomp','kick','powerup','powerdown','oneup','fire','tail','fly','pipe','death','clear','worldClear','victory','pause','select','hurry','swim','sprout','cannon','flame','orb','tick','gameover','cheat'];
  assert.equal(Object.keys(Audio.effects).length,events.length);
  for(const name of events){
   assert.ok(Audio.effects[name].length>0,name);

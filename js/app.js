@@ -1,10 +1,11 @@
-/* Liga o jogo à página: controles, interface, som, música em arquivo e salvamento. */
+/* Liga o jogo à página: controles (teclado, toque, controle), interface, resolução HD,
+ * códigos secretos, som, música em arquivo e salvamento. */
 (() => {
   'use strict';
 
   const $ = id => document.getElementById(id);
   const canvas = $('game');
-  const { MarioGame, MAP_NODES } = MarioCore;
+  const { MarioGame, MAP_NODES, W } = MarioCore;
   const game = new MarioGame();
   const renderer = new MarioRenderer(canvas);
   const audio = new MarioAudio();
@@ -17,14 +18,16 @@
   const SAVE = 'mario3-adventure-v1';
   const LABELS = { mushroom: 'Cogumelo', leaf: 'Folha', flower: 'Flor de fogo', star: 'Estrela' };
   const POWER_NAMES = { small: 'Mario', big: 'Super Mario', raccoon: 'Mario Guaxinim', fire: 'Mario de Fogo' };
+  const CHEAT_NAMES = { fly: 'voo infinito', fire: 'tiro livre', triple: 'tiro triplo', mega: 'megatiro', invincible: 'invencível' };
   const KEYMAP = {
     ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowDown: 'down', KeyS: 'down',
     ArrowUp: 'up', KeyW: 'up', KeyZ: 'jump', Space: 'jump', KeyK: 'jump', KeyX: 'run', ShiftLeft: 'run',
     ShiftRight: 'run', KeyJ: 'run', Enter: 'start', NumpadEnter: 'start'
   };
+  const coarse = matchMedia('(pointer: coarse)').matches;
   const keys = {}, touch = {}, tapped = new Set();
   let soundOn = true, musicOn = true, saved = null, last = 0, acc = 0, uiSig = '', padStart = false;
-  let confirmUntil = 0, resumeAfterHelp = false;
+  let confirmUntil = 0, resumeAfterHelp = false, resumeAfterCheat = false, toastTimer = 0;
 
   try {
     const raw = JSON.parse(localStorage.getItem(SAVE));
@@ -34,6 +37,20 @@
   audio.setVolume(startVolume);
   tracks.setVolume(startVolume);
   localMusic.setVolume(startVolume);
+
+  /* ---------------------- Resolução HD dinâmica ---------------------- */
+  // O canvas usa a resolução real da tela: em HD, Full HD, retina ou 4K tudo fica nítido.
+  function fitResolution() {
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const target = Math.ceil((rect.width * dpr) / W);
+    renderer.setScale(Math.max(2, Math.min(coarse ? 4 : 8, target)));
+  }
+  if (typeof ResizeObserver === 'function') new ResizeObserver(fitResolution).observe(canvas);
+  window.addEventListener('resize', fitResolution);
+  document.addEventListener('fullscreenchange', () => setTimeout(fitResolution, 50));
+  fitResolution();
 
   function persist() {
     if (game.mode === 'title') return;
@@ -48,6 +65,14 @@
     for (const k of Object.keys(keys)) delete keys[k];
     for (const k of Object.keys(touch)) delete touch[k];
     tapped.clear();
+  }
+  function toast(message, good = true) {
+    const el = $('toast');
+    el.textContent = message;
+    el.classList.toggle('bad', !good);
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
   }
 
   /* ----------------------------- Ações ----------------------------- */
@@ -72,6 +97,7 @@
     unlock();
     if (saved && game.loadSave(saved)) { clearInput(); focusGame(); }
   }
+  function titleAction() { if (saved && !saved.finished) continueSaved(); else primaryAction(); }
   function endGame() { game.endGame(); persist(); uiSig = ''; }
   function togglePause() {
     if (game.mode === 'paused') game.resume();
@@ -88,9 +114,45 @@
   async function toggleFull() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
-      else await $('screen').requestFullscreen();
+      else await enterFullscreen();
     } catch { $('status').textContent = 'Tela cheia indisponível neste navegador.'; }
   }
+  async function enterFullscreen() {
+    const el = coarse ? document.documentElement : $('screen');
+    if (!el.requestFullscreen) throw new Error('sem suporte');
+    await el.requestFullscreen({ navigationUI: 'hide' });
+    try { if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape'); } catch { /* opcional */ }
+  }
+
+  /* ------------------------- Códigos secretos ------------------------- */
+  // Teclado: tecla Ç (ou ; em teclados americanos). Celular: segurar START por 1 segundo.
+  function openCheat() {
+    if (!['playing', 'map', 'paused'].includes(game.mode)) { toast('Use os códigos no mapa ou durante a fase', false); return; }
+    resumeAfterCheat = game.mode !== 'paused';
+    game.pause();
+    clearInput();
+    $('cheatBox').hidden = false;
+    $('cheatInput').value = '';
+    $('cheatInput').focus();
+  }
+  function closeCheat(apply) {
+    const code = $('cheatInput').value;
+    $('cheatBox').hidden = true;
+    $('cheatInput').blur();
+    if (resumeAfterCheat) game.resume();
+    clearInput();
+    focusGame();
+    if (!apply || !code.trim()) return;
+    const result = game.applyCheat(code);
+    toast(result.label, result.ok);
+    persist();
+  }
+  $('cheatBox').addEventListener('submit', e => { e.preventDefault(); closeCheat(true); });
+  $('cheatInput').addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.preventDefault(); closeCheat(false); }
+    e.stopPropagation();
+  });
+  $('cheatCancel').onclick = () => closeCheat(false);
 
   $('start').onclick = primaryAction;
   $('continue').onclick = continueSaved;
@@ -145,18 +207,19 @@
   // Depois de clicar em qualquer botão da página, o teclado volta para o jogo.
   document.addEventListener('click', e => {
     const b = e.target.closest('button');
-    if (!b || b.id === 'help' || b.closest('dialog') || b.closest('details')) return;
+    if (!b || b.id === 'help' || b.closest('dialog') || b.closest('details') || b.closest('#cheatBox')) return;
     focusGame();
   });
   window.addEventListener('pointerdown', unlock, { passive: true });
 
   /* ---------------------------- Teclado ---------------------------- */
   window.addEventListener('keydown', e => {
-    if ($('instructions').open) return;
+    if ($('instructions').open || !$('cheatBox').hidden) return;
     const tag = e.target && e.target.tagName;
     if (tag === 'INPUT' && e.target.type !== 'range') return;
     if (tag === 'INPUT' && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.code)) return;
     if (tag === 'BUTTON' && ['Enter', 'Space', 'NumpadEnter'].includes(e.code)) return;
+    if (e.code === 'Semicolon' || e.key === 'ç' || e.key === 'Ç') { e.preventDefault(); openCheat(); return; }
     if (KEYMAP[e.code] || ['KeyP', 'Escape', 'KeyM', 'KeyF'].includes(e.code)) e.preventDefault();
     unlock();
     if (e.repeat) return;
@@ -164,7 +227,7 @@
     if (e.code === 'KeyM') { toggleSound(); return; }
     if (e.code === 'KeyF') { toggleFull(); return; }
     const action = KEYMAP[e.code];
-    if (game.mode === 'title' && ['start', 'jump'].includes(action)) { if (saved && !saved.finished) continueSaved(); else primaryAction(); return; }
+    if (game.mode === 'title' && ['start', 'jump'].includes(action)) { titleAction(); return; }
     if (game.mode === 'paused' && action === 'start') { togglePause(); return; }
     if (game.mode === 'victory' && action === 'start') return;
     if (game.mode === 'playing' && action === 'start') { togglePause(); return; }
@@ -172,20 +235,47 @@
   });
   window.addEventListener('keyup', e => { delete keys[e.code]; });
 
-  /* --------------------------- Toque --------------------------- */
+  /* ------------------------------ Toque ------------------------------ */
+  // O dedo pode deslizar entre os botões (ex.: de ◀ para ▶, ou de B para A) sem levantar.
+  const keyAt = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    const b = el && el.closest && el.closest('[data-key]');
+    return b ? b.dataset.key : null;
+  };
+  let startHold = 0, triedFullscreen = false;
   for (const b of document.querySelectorAll('[data-key]')) {
     b.addEventListener('pointerdown', e => {
       e.preventDefault();
       unlock();
       const key = b.dataset.key;
-      if (key === 'start' && ['playing', 'paused'].includes(game.mode)) { togglePause(); return; }
-      if (key === 'start' && game.mode === 'title') { if (saved && !saved.finished) continueSaved(); else primaryAction(); return; }
-      try { b.setPointerCapture(e.pointerId); } catch {}
+      if (coarse && !triedFullscreen && !document.fullscreenElement && matchMedia('(orientation: landscape)').matches) { triedFullscreen = true; enterFullscreen().catch(() => {}); }
+      if (key === 'start') {
+        clearTimeout(startHold);
+        startHold = setTimeout(() => { startHold = 0; openCheat(); }, 900);
+        return;
+      }
       touch[e.pointerId] = key;
       tapped.add(key);
     });
-    for (const evt of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(evt, e => { delete touch[e.pointerId]; });
   }
+  window.addEventListener('pointermove', e => {
+    if (!(e.pointerId in touch)) return;
+    const key = keyAt(e.clientX, e.clientY);
+    if (key && key !== 'start' && key !== touch[e.pointerId]) { touch[e.pointerId] = key; tapped.add(key); }
+  }, { passive: true });
+  const release = e => {
+    delete touch[e.pointerId];
+    const start = e.target && e.target.closest && e.target.closest('[data-key=start]');
+    if (start && startHold) {
+      clearTimeout(startHold);
+      startHold = 0;
+      if (['playing', 'paused'].includes(game.mode)) togglePause();
+      else if (game.mode === 'title') titleAction();
+      else tapped.add('start');
+    }
+  };
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
 
   /* ------------------------ Entrada combinada ------------------------ */
   function input() {
@@ -208,12 +298,12 @@
         if (start && !padStart) {
           unlock();
           if (['playing', 'paused'].includes(game.mode)) togglePause();
-          else if (game.mode === 'title') { if (saved && !saved.finished) continueSaved(); else primaryAction(); }
+          else if (game.mode === 'title') titleAction();
           else i.start = true;
         }
         padStart = start;
       }
-    } catch { /* gamepad indisponível */ }
+    } catch { /* controle indisponível */ }
     i.move = (i.right ? 1 : 0) - (i.left ? 1 : 0);
     return i;
   }
@@ -256,8 +346,9 @@
   function updateUI() {
     const mode = game.mode, view = mode === 'paused' ? game.beforePause : mode;
     const confirming = Date.now() < confirmUntil;
+    const cheats = game.activeCheats();
     const sig = [mode, view, game.world, game.mapPos, !!game.mapAnim, game.lives, game.player && game.player.power, game.savedPower,
-      game.inventory.join(), game.toadOpened.join(), game.completed.join(), !!saved, confirming, game.pendingStar, game.invOpen, game.stage].join('|');
+      game.inventory.join(), game.toadOpened.join(), game.completed.join(), !!saved, confirming, game.pendingStar, game.invOpen, game.stage, cheats.join()].join('|');
     if (sig === uiSig) return;
     uiSig = sig;
     $('world').textContent = 'MUNDO ' + (game.world + 1);
@@ -266,8 +357,7 @@
     $('next').disabled = game.mapPos >= MAP_NODES.length - 1 || !game.isPassable(game.mapPos);
     $('enter').disabled = !canEnter();
     $('enter').textContent = game.node.kind === 'toad' ? 'Abrir a casa' : 'Entrar';
-    const overlayModes = ['title', 'paused', 'gameover', 'victory'];
-    $('overlay').hidden = !overlayModes.includes(mode);
+    $('overlay').hidden = !['title', 'paused', 'gameover', 'victory'].includes(mode) || !$('cheatBox').hidden;
     const title = $('overlayTitle');
     const hasSave = !!saved && !saved.finished;
     if (mode === 'title') title.innerHTML = 'SUPER<br><span>MARIO</span><br>BROS. 3';
@@ -290,7 +380,7 @@
       clear: 'Fase concluída!', dying: 'Mais uma tentativa…', paused: 'Jogo pausado', victory: 'Aventura concluída',
       gameover: 'Fim de jogo', title: hasSave ? 'Progresso salvo encontrado' : 'Pronto para jogar'
     };
-    $('status').textContent = statuses[mode] || '';
+    $('status').textContent = (statuses[mode] || '') + (cheats.length ? ` · ★ ${cheats.map(c => CHEAT_NAMES[c]).join(', ')}` : '');
     const items = $('items');
     items.replaceChildren();
     game.inventory.forEach((item, index) => {
@@ -303,7 +393,7 @@
     });
   }
 
-  window.addEventListener('blur', () => { if (['playing', 'map', 'toad'].includes(game.mode)) game.pause(); clearInput(); });
+  window.addEventListener('blur', () => { if (['playing', 'map', 'toad'].includes(game.mode) && $('cheatBox').hidden) game.pause(); clearInput(); });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { if (['playing', 'map', 'toad'].includes(game.mode)) game.pause(); clearInput(); persist(); }
     last = 0;

@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 require('../js/levels.js');
 require('../js/engine.js');
 require('../js/sprites.js');
+require('../js/hd.js');
 require('../js/scenery.js');
 require('../js/renderer.js');
 const { MarioGame, createLevel, PHYS, CHAIN, T, MAP_NODES } = globalThis.MarioCore;
@@ -521,7 +522,7 @@ test('renderização usa coordenadas finitas em todas as fases e telas', () => {
   for (let i = 0; i < 48; i++) {
     const g = game(i);
     r.draw(g, 1);
-    g.camera = g.level.width - 384;
+    g.camera = g.level.width - MarioCore.W;
     r.draw(g, 1.5);
     g.mode = 'map';
     r.draw(g, 1);

@@ -5,7 +5,7 @@
 
   const LV = globalThis.MarioLevels;
   const { TILE, ROWS, FLOOR, T, WORLDS, createLevel, createBonusRoom, isSolid, isOneWay } = LV;
-  const W = 384, H = 256, PLAY = 224;
+  const W = 448, H = 256, PLAY = 224; // área lógica widescreen (7:4, quase 16:9)
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
@@ -94,6 +94,8 @@
     }
 
     newGame() {
+      this.cheats = this.cheats || { fly: false, fire: false, triple: false, mega: false, invincible: false };
+      this.shake = 0;
       this.mode = 'map';
       this.world = 0;
       this.mapPos = 0;
@@ -465,6 +467,9 @@
     debris(x, y, color = '#d18a48') {
       for (let i = 0; i < 4; i++) this.particles.push({ kind: 'debris', x: x + 4 + (i % 2) * 8, y: y + 4 + (i > 1 ? 8 : 0), vx: (i % 2 ? 1 : -1) * 70, vy: i > 1 ? -150 : -260, life: 0.9, color });
     }
+    dust(x, y, n) {
+      for (let i = 0; i < n; i++) this.particles.push({ kind: 'dust', x: x + (i - n / 2) * 4, y: y - 3, vx: (i - n / 2 + 0.5) * 30, vy: -18 - (i % 2) * 10, life: 0.35 });
+    }
     puff(x, y) { for (let i = 0; i < 6; i++) this.particles.push({ kind: 'puff', x: x + (i % 3) * 6, y: y + Math.floor(i / 3) * 8, vx: (i % 3 - 1) * 30, vy: -20, life: 0.45 }); }
 
     hitBlock(tx, ty, by = 'player', source = null) {
@@ -555,7 +560,7 @@
     }
     damage() {
       const p = this.player;
-      if (this.mode !== 'playing' || !p || p.invuln > 0 || p.star > 0 || p.pipe) return;
+      if (this.mode !== 'playing' || !p || p.invuln > 0 || p.star > 0 || p.pipe || this.cheats.invincible) return;
       if (p.power === 'fire' || p.power === 'raccoon') {
         this.puff(p.x - 2, p.y + p.h - 16);
         this.setPower('big');
@@ -621,16 +626,26 @@
       this.kickShell(e, p.facing);
     }
     attack() {
-      const p = this.player;
+      const p = this.player, c = this.cheats;
       if (p.attackCooldown > 0 || p.duck) return;
-      if (p.power === 'fire') {
-        if (this.projectiles.filter(a => a.kind === 'fire').length >= 2) return;
-        this.projectiles.push({ kind: 'fire', x: p.x + (p.facing > 0 ? p.w : -8), y: p.y + 8, w: 8, h: 8, vx: p.facing * 240, vy: 60, life: 3 });
-        p.attackCooldown = 0.2;
-        this.emit('fire');
-      } else if (p.power === 'raccoon') {
+      const cheatFire = c.fire || c.triple || c.mega;
+      if (p.power === 'fire' || cheatFire) {
+        const limit = cheatFire ? 9 : 2;
+        if (this.projectiles.filter(a => a.kind === 'fire').length < limit) {
+          const size = c.mega ? 14 : 8;
+          const base = { kind: 'fire', x: p.x + (p.facing > 0 ? p.w : -size), y: p.y + (p.h > 16 ? 8 : 4), w: size, h: size, vx: p.facing * (c.mega ? 260 : 240), life: 3, pierce: c.mega, mega: c.mega };
+          this.projectiles.push({ ...base, vy: 60 });
+          if (c.triple) {
+            this.projectiles.push({ ...base, vy: -260 });
+            this.projectiles.push({ ...base, vy: 0, straight: true, life: 1.6 });
+          }
+          p.attackCooldown = cheatFire ? 0.12 : 0.2;
+          this.emit('fire');
+        }
+      }
+      if (p.power === 'raccoon') {
         p.tail = 0.25;
-        p.attackCooldown = 0.32;
+        p.attackCooldown = Math.max(p.attackCooldown, cheatFire ? 0.12 : 0.32);
         this.emit('tail');
         const hit = { x: p.x - 10, y: p.y + p.h - 14, w: p.w + 20, h: 12 };
         for (const e of this.level.enemies) {
@@ -683,6 +698,7 @@
       if (this.freeze > 0) { this.freeze -= dt; return; }
       if (p.pipe) { this.stepPipe(dt); this.updateParticles(dt); return; }
       this.clock += dt;
+      this.shake = Math.max(0, this.shake - dt);
       this.time = Math.max(0, this.time - dt / PHYS.timeUnit);
       if (this.time < 100 && !this.hurry) { this.hurry = true; this.emit('hurry'); }
       if (this.time <= 0) { this.die(); return; }
@@ -771,6 +787,8 @@
       }
 
       // Pulo, nado, voo e balanço da cauda
+      const canFly = p.power === 'raccoon' || this.cheats.fly;
+      if (this.cheats.fly && !water) { p.pm = 7; if (!p.grounded && p.flight <= 0) p.flight = PHYS.flightTime; if (p.flight > 0) p.flight = Math.max(p.flight, 1); }
       if (p.grounded) p.coyote = 0.05;
       if (!inp.jump) p.jumpHeld = false;
       if (pressed('jump')) p.jumpBuffer = 0.05;
@@ -790,13 +808,13 @@
           p.coyote = 0;
           p.jumpBuffer = 0;
           p.jumpHeld = true;
-          if (p.power === 'raccoon' && p.pm >= 7 && !p.inSand && p.flight <= 0) { p.flight = PHYS.flightTime; this.emit('fly'); }
+          if (canFly && p.pm >= 7 && !p.inSand && p.flight <= 0) { p.flight = PHYS.flightTime; this.emit('fly'); }
           else if (p.flight > 0) this.emit('fly');
           else this.emit('jump');
-        } else if (pressed('jump') && p.power === 'raccoon' && !p.grounded) {
+        } else if (pressed('jump') && canFly && !p.grounded) {
           if (p.flight > 0) { p.flap = 8 / 60; this.emit('tail'); }
-          else if (p.vy > -20) { p.wag = 16 / 60; this.emit('tail'); }
-          p.tail = Math.max(p.tail, 0.12);
+          else if (p.vy > -20 && p.power === 'raccoon') { p.wag = 16 / 60; this.emit('tail'); }
+          if (p.power === 'raccoon') p.tail = Math.max(p.tail, 0.12);
         }
         if (p.flap > 0) p.vy = -PHYS.flyClimb;
         else {
@@ -815,7 +833,10 @@
       if (inp.down && p.grounded && !p.carry && p.pipeCooldown <= 0 && this.tryPipe()) return;
 
       p.prevBottom = p.y + p.h;
+      const wasAir = !p.grounded, fallSpeed = p.vy;
       const res = this.moveBody(p, dt, { player: true });
+      if (wasAir && p.grounded && fallSpeed > 160) this.dust(p.x + p.w / 2, p.y + p.h, 4);
+      if (p.skidding && Math.floor(this.clock * 20) % 3 === 0) this.dust(p.x + p.w / 2 - p.facing * 6, p.y + p.h, 1);
       if (res.hitX && p.grounded) { p.pm = 0; p.pmFill = 0; }
       if (p.flight > 0 && p.grounded && p.vy >= 0 && !inp.run) p.flight = 0;
 
@@ -1179,6 +1200,7 @@
       if (wasAir && b.grounded && b.pound) {
         b.pound = false;
         b.vx = 0;
+        this.shake = 0.35;
         this.debris(b.x + 8, b.y + b.h - 8, '#9c7466');
         this.emit('break');
         const y = Math.floor((b.y + b.h + 1) / TILE);
@@ -1200,21 +1222,22 @@
       for (const a of this.projectiles) {
         a.life -= dt;
         if (a.kind === 'fire') {
-          a.vy = Math.min(PHYS.maxFall, a.vy + 1100 * dt);
+          if (!a.straight) a.vy = Math.min(PHYS.maxFall, a.vy + 1100 * dt);
           const before = a.vx;
           const hit = this.moveBody(a, dt);
           if (hit.hitX || a.vx !== before) { a.life = 0; this.particles.push({ kind: 'puff', x: a.x, y: a.y, vx: 0, vy: 0, life: 0.2 }); }
+          if (a.straight && hit.hitY) a.life = 0;
           if (a.grounded) a.vy = -170;
           for (const e of l.enemies) {
-            if (e.dead || e.held || ['bullet'].includes(e.type) || (e.type === 'piranha' && e.hidden)) continue;
+            if (e.dead || e.held || (e.type === 'bullet' && !a.mega) || (e.type === 'piranha' && e.hidden)) continue;
             const box = e.type === 'piranha' ? e.hb : e;
-            if (box && overlap(a, box)) { this.defeatEnemy(e, 'fire', 100); a.life = 0; break; }
+            if (box && overlap(a, box)) { this.defeatEnemy(e, 'fire', 100); if (!a.pierce) { a.life = 0; break; } }
           }
           const b = l.boss;
           if (a.life > 0 && b && b.awake && !b.dead && overlap(a, b)) {
             a.life = 0;
-            if (b.type === 'bowser') { b.hp -= 1; this.emit('bump'); if (b.hp <= 0) { b.falling = true; b.vy = -120; } }
-            else this.hurtBoss(0.2);
+            if (b.type === 'bowser') { b.hp -= a.mega ? 3 : 1; this.emit('bump'); if (b.hp <= 0) { b.falling = true; b.vy = -120; } }
+            else this.hurtBoss(a.mega ? 0.5 : 0.2);
           }
         } else {
           a.x += a.vx * dt;
@@ -1322,6 +1345,114 @@
         this.mode = 'map';
         this.emit('map');
       }
+    }
+
+    /* ------------------------ Códigos secretos ------------------------ */
+    applyCheat(raw) {
+      const code = String(raw || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const mode = this.mode === 'paused' ? this.beforePause : this.mode;
+      const inLevel = ['playing'].includes(mode) && this.level;
+      const onMap = mode === 'map';
+      if (!inLevel && !onMap) return { ok: false, label: 'Use os códigos no mapa ou durante a fase' };
+      const toggle = (key, name) => {
+        this.cheats[key] = !this.cheats[key];
+        return { ok: true, label: `${name}: ${this.cheats[key] ? 'LIGADO' : 'DESLIGADO'}` };
+      };
+      const power = (pw, label) => {
+        if (inLevel) { if (this.player.power !== pw) this.grow(pw); this.freeze = 0; }
+        this.savedPower = pw;
+        return { ok: true, label };
+      };
+      let result;
+      const world = code.match(/^MUNDO([1-8])$/);
+      if (world) result = this.cheatWarp(Number(world[1]) - 1);
+      else switch (code) {
+        case 'PULAFASE': result = this.cheatSkip(); break;
+        case 'PULAMUNDO': result = this.cheatSkipWorld(); break;
+        case 'COGUMELO':
+          for (let i = 0; i < 5; i++) this.addItem('mushroom');
+          if ((inLevel ? this.player.power : this.savedPower) === 'small') power('big', '');
+          result = { ok: true, label: 'Cogumelos! +5 no inventário' };
+          break;
+        case 'FOLHA': result = power('raccoon', 'Mario Guaxinim'); break;
+        case 'FLOR': result = power('fire', 'Mario de Fogo'); break;
+        case 'ESTRELA':
+          if (inLevel) { this.player.star = 20; this.player.starChain = 0; } else this.pendingStar = 20;
+          result = { ok: true, label: 'Estrela por 20 segundos' };
+          break;
+        case 'VIDAEXTRA': this.lives = Math.min(99, this.lives + 10); result = { ok: true, label: '+10 vidas' }; break;
+        case 'VOARSEMPRE': result = toggle('fly', 'Voo infinito'); break;
+        case 'TIROLIVRE': result = toggle('fire', 'Tiro em qualquer forma'); break;
+        case 'TIROTRIPLO': result = toggle('triple', 'Tiro triplo'); break;
+        case 'MEGATIRO': result = toggle('mega', 'Megatiro perfurante'); break;
+        case 'INVENCIVEL': result = toggle('invincible', 'Invencível'); break;
+        case 'NORMAL':
+          for (const k of Object.keys(this.cheats)) this.cheats[k] = false;
+          result = { ok: true, label: 'Códigos desligados' };
+          break;
+        default: result = { ok: false, label: 'Código inválido' };
+      }
+      this.emit(result.ok ? 'cheat' : 'bump');
+      return result;
+    }
+    activeCheats() { return Object.keys(this.cheats).filter(k => this.cheats[k]); }
+    cheatSkip() {
+      const mode = this.mode === 'paused' ? this.beforePause : this.mode;
+      if (this.mode === 'paused') this.resume();
+      if (mode === 'playing') {
+        if (this.level.bonus) this.level = this.mainLevel;
+        const b = this.level.boss;
+        if (b && !b.dead) {
+          b.dead = true;
+          if (b.type === 'bowser') { this.clearStage('bowser'); return { ok: true, label: 'Bowser derrotado!' }; }
+        }
+        this.clearStage(b ? 'orb' : 'card');
+        return { ok: true, label: 'Fase concluída' };
+      }
+      let pos = this.mapPos;
+      while (pos < MAP_NODES.length && (MAP_NODES[pos].kind !== 'stage' || this.isCompleted(this.world * 6 + MAP_NODES[pos].slot))) pos++;
+      if (pos >= MAP_NODES.length) return this.cheatSkipWorld();
+      const stage = this.world * 6 + MAP_NODES[pos].slot;
+      this.completed.push(stage);
+      this.highest = Math.max(this.highest, Math.min(47, stage + 1));
+      this.mapAnim = null;
+      this.mapPos = pos;
+      if (stage % 6 === 5) this.finishWorld();
+      return { ok: true, label: `${stageName(stage)} concluída` };
+    }
+    cheatSkipWorld() {
+      if (this.mode === 'paused') this.resume();
+      for (let s = this.world * 6; s < this.world * 6 + 6; s++) if (!this.completed.includes(s)) this.completed.push(s);
+      this.highest = Math.max(this.highest, Math.min(47, this.world * 6 + 6));
+      this.level = null;
+      this.mainLevel = null;
+      this.player = null;
+      this.mode = 'map';
+      this.finishWorld();
+      return { ok: true, label: 'Mundo concluído' };
+    }
+    finishWorld() {
+      if (this.world >= 7) { this.mode = 'victory'; this.emit('victory'); return; }
+      this.world += 1;
+      this.mapPos = 0;
+      this.mapAnim = null;
+      this.banner = { text: `MUNDO ${this.world + 1}`, sub: WORLDS[this.world].name, time: 3 };
+      this.emit('map');
+    }
+    cheatWarp(w) {
+      if (this.mode === 'paused') this.resume();
+      for (let s = 0; s < w * 6; s++) if (!this.completed.includes(s)) this.completed.push(s);
+      this.highest = Math.max(this.highest, w * 6);
+      this.level = null;
+      this.mainLevel = null;
+      this.player = null;
+      this.mode = 'map';
+      this.world = w;
+      this.mapPos = 0;
+      this.mapAnim = null;
+      this.banner = { text: `MUNDO ${w + 1}`, sub: WORLDS[w].name, time: 3 };
+      this.emit('map');
+      return { ok: true, label: `Indo para o Mundo ${w + 1}` };
     }
 
     // Estado mínimo para busca automática nos testes de jogabilidade.

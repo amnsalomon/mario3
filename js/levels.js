@@ -8,7 +8,7 @@
   const TILE = 16;
   const ROWS = 14;
   const FLOOR = 12; // primeira linha do chão
-  const ARENA = 26; // colunas reservadas para a arena do chefe
+  const ARENA = 28; // colunas reservadas para a arena do chefe (uma tela inteira)
 
   const T = Object.freeze({
     EMPTY: 0,
@@ -769,7 +769,7 @@
 
   // Sala bônus subterrânea (uma por fase; permanece igual enquanto a fase durar).
   function createBonusRoom(main) {
-    const cols = 26;
+    const cols = 30;
     const plan = { key: 'bonus', theme: 'underground', kind: 'bonus', time: main.time };
     const l = baseLevel(main.index, cols, plan);
     l.bonus = true;
@@ -778,8 +778,8 @@
     b.floor(0, cols);
     for (let x = 0; x < cols; x++) b.set(x, 0, T.STONE);
     for (let y = 1; y < FLOOR; y++) { b.set(0, y, T.STONE); b.set(cols - 1, y, T.STONE); }
-    for (let x = 6; x <= 18; x += 2) for (const y of [4, 6, 8]) b.coin(x, y);
-    b.block(12, 9, T.QUESTION, 'star');
+    for (let x = 7; x <= 23; x += 2) for (const y of [4, 6, 8]) b.coin(x, y);
+    b.block(15, 9, T.QUESTION, 'star');
     const entry = b.pipe(2, 2), exit = b.pipe(cols - 4, 2);
     l.spawnPipe = { x: entry.x * TILE + 9, top: entry.top * TILE };
     l.pipes.push({ x: exit.x * TILE, y: exit.top * TILE, w: 32, target: { type: 'return' } });
