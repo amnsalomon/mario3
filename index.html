@@ -1,9 +1,110 @@
 <!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#19243b"><title>Mario 3 · Uma aventura em 8 mundos</title><link rel="stylesheet" href="style.css?v=2"></head>
-<body><main><header><a class="brand" href="./">M<span>3</span></a><div><p class="eyebrow">UMA HOMENAGEM AO CLÁSSICO DE 8 BITS</p><h1>O espetáculo vai começar.</h1></div><button id="help" aria-label="Abrir instruções">Como jogar ↗</button></header>
-<section class="cabinet" aria-label="Jogo"><div class="topline"><span>SUPER MARIO BROS. 3 <small>FAN RECREATION</small></span><span id="world">WORLD 01</span></div><div class="screen" id="screen"><canvas id="game" width="1536" height="1024" tabindex="0" aria-label="Jogo de plataforma. Controles descritos em Como jogar."></canvas><div id="overlay"><p class="eyebrow">48 FASES · 8 MUNDOS</p><h2>SUPER<br><span>MARIO</span><br>BROS. 3</h2><p id="overlayText">Uma nova aventura com alma de cartucho.</p><div class="actions"><button class="primary" id="start">Começar aventura</button><button id="continue" hidden>Continuar</button></div></div></div><div class="toolbar"><span id="status" role="status">Pronto para jogar</span><div><button id="pause" title="P: pausar">Ⅱ</button><button id="sound" aria-pressed="true">Som ligado</button><button id="music" aria-pressed="true">Música ligada</button><label class="volume">Volume <input id="volume" aria-label="Volume" type="range" min="0" max="100" value="45"></label><button id="full" title="Tela cheia">⛶</button></div></div></section>
-<div class="mapbar" id="mapbar" hidden><button id="prev">← Fase</button><button id="enter" class="primary">Entrar na fase</button><button id="next">Fase →</button><button id="toad">Casa do Toad</button><div id="items"></div></div>
-<div class="touch"><div><button data-key="left" aria-label="Esquerda">◀</button><button data-key="down" aria-label="Abaixar">▼</button><button data-key="right" aria-label="Direita">▶</button></div><div><button data-key="run">B <small>CORRER</small></button><button data-key="jump">A <small>PULAR</small></button></div></div>
-<details class="music-import"><summary>Usar meu arquivo de música</summary><p>Escolha um áudio para tocar durante esta sessão. Ele fica apenas no seu navegador; os efeitos do jogo continuam ativos.</p><label>Arquivo de áudio <input id="musicFile" type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a"></label> <button id="resetMusic" hidden>Voltar à trilha do jogo</button><p id="musicFileStatus" role="status">A trilha padrão é uma composição própria em estilo 8-bit.</p></details><section class="guide"><div><b>01 / MOVA-SE</b><p>← → ou A D para andar.<br>Segure X ou Shift para correr.</p></div><div><b>02 / DESCUBRA</b><p>Z ou espaço para pular.<br>↓ para abaixar e entrar em canos.</p></div><div><b>03 / TRANSFORME-SE</b><p>Flor: X lança fogo. Folha: corra até P<br>e aperte Z repetidamente para voar.</p></div></section><footer>Feito para jogar, explorar e lembrar. <span>Recriação independente com fases e trilhas próprias. Sem ROM.</span></footer></main>
-<dialog id="instructions"><h2>Pequeno manual de aventura</h2><p><b>Mapa:</b> escolha uma fase liberada com as setas e pressione Enter. A Casa do Toad oferece um item por mundo. Clique no item para usá-lo antes da fase.</p><p><b>Movimento:</b> setas ou A/D. Z ou espaço pula; segurar aumenta o salto. X ou Shift corre, dispara fogo e golpeia com a cauda. Segure B ao tocar um casco parado para carregá-lo; solte para lançar.</p><p><b>Folha:</b> corra até encher o medidor P, pule e pressione pular repetidamente para voar. Segure pular na queda para planar. Na água, pressione pular para nadar.</p><p><b>Objetivo:</b> alcance a carta no fim da fase. Três cartas dão vidas; 100 moedas também. Nos fortes, pule três vezes no chefe. No último castelo, desvie dos saltos de Bowser até ele quebrar o chão.</p><p>P ou Esc pausa · M liga/desliga som · F tela cheia. Controle USB/Bluetooth: direcional, A pula, B corre e Start pausa. O progresso é salvo neste navegador.</p><p>As músicas e efeitos foram sintetizados em estilo 8-bit. Não são gravações ou transcrições das faixas originais da Nintendo.</p><button id="closeHelp" class="primary">Vamos jogar</button></dialog>
-<script src="js/engine.js?v=2"></script><script src="js/sprites.js?v=2"></script><script src="js/audio.js?v=2"></script><script src="js/scenery.js?v=2"></script><script src="js/renderer.js?v=2"></script><script src="js/local-music.js?v=2"></script><script src="js/app.js?v=2"></script></body></html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#19243b">
+  <title>Mario 3 · Uma aventura em 8 mundos</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css?v=3">
+</head>
+<body>
+  <main>
+    <header>
+      <a class="brand" href="./">M<span>3</span></a>
+      <div>
+        <p class="eyebrow">UMA HOMENAGEM AO CLÁSSICO DE 8 BITS</p>
+        <h1>O espetáculo vai começar.</h1>
+      </div>
+      <button id="help" aria-label="Abrir instruções">Como jogar ↗</button>
+    </header>
+
+    <section class="cabinet" aria-label="Jogo">
+      <div class="topline"><span>SUPER MARIO BROS. 3 <small>FAN RECREATION</small></span><span id="world">MUNDO 1</span></div>
+      <div class="screen" id="screen">
+        <canvas id="game" width="1536" height="1024" tabindex="0" aria-label="Jogo de plataforma. Controles descritos em Como jogar."></canvas>
+        <div id="overlay">
+          <p class="eyebrow" id="overlayEyebrow">48 FASES · 8 MUNDOS</p>
+          <h2 id="overlayTitle">SUPER<br><span>MARIO</span><br>BROS. 3</h2>
+          <p id="overlayText">Uma nova aventura com alma de cartucho.</p>
+          <div class="actions">
+            <button class="primary" id="start">Começar aventura</button>
+            <button id="continue" hidden>Continuar</button>
+            <button id="end" hidden>Encerrar</button>
+          </div>
+        </div>
+      </div>
+      <div class="toolbar">
+        <span id="status" role="status">Pronto para jogar</span>
+        <div>
+          <button id="pause" title="P: pausar">Ⅱ</button>
+          <button id="sound" aria-pressed="true">Som ligado</button>
+          <button id="music" aria-pressed="true">Música ligada</button>
+          <label class="volume">Volume <input id="volume" aria-label="Volume" type="range" min="0" max="100" value="45"></label>
+          <button id="full" title="Tela cheia">⛶</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="mapbar" id="mapbar" hidden>
+      <button id="prev">← Andar</button>
+      <button id="enter" class="primary">Entrar</button>
+      <button id="next">Andar →</button>
+      <div id="items" aria-label="Itens guardados"></div>
+    </div>
+
+    <div class="touch">
+      <div>
+        <button data-key="left" aria-label="Esquerda">◀</button>
+        <button data-key="down" aria-label="Abaixar">▼</button>
+        <button data-key="right" aria-label="Direita">▶</button>
+      </div>
+      <div>
+        <button data-key="start" class="small">START</button>
+        <button data-key="run">B <small>CORRER</small></button>
+        <button data-key="jump">A <small>PULAR</small></button>
+      </div>
+    </div>
+
+    <details class="music-import">
+      <summary>Usar meu arquivo de música</summary>
+      <p>Escolha um áudio para tocar durante esta sessão. Ele fica apenas no seu navegador; os efeitos do jogo continuam ativos.</p>
+      <label>Arquivo de áudio <input id="musicFile" type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a"></label>
+      <button id="resetMusic" hidden>Voltar à trilha do jogo</button>
+      <p id="musicFileStatus" role="status">No mapa toca a faixa da pasta music/; nas fases, trilhas próprias em estilo 8-bit.</p>
+    </details>
+
+    <section class="guide">
+      <div><b>01 / MOVA-SE</b><p>← → ou A D para andar.<br>Segure X ou Shift para correr e encher o P.</p></div>
+      <div><b>02 / DESCUBRA</b><p>Z ou espaço pula; segurar pula mais alto.<br>↓ em cima de certos canos para entrar.</p></div>
+      <div><b>03 / TRANSFORME-SE</b><p>Com o P cheio, pule e aperte Z várias vezes<br>para voar. Na queda, toque Z para planar.</p></div>
+    </section>
+    <footer>Feito para jogar, explorar e lembrar. <span>Recriação independente com fases próprias. Sem ROM.</span></footer>
+  </main>
+
+  <dialog id="instructions">
+    <h2>Pequeno manual de aventura</h2>
+    <p><b>Mapa:</b> ← → anda pelo caminho e Z ou Enter entra na fase. Como no original, uma fase concluída vira um painel M e não se repete; para seguir adiante é preciso concluir a fase em que você está. X abre os itens guardados (← → escolhe, Z usa).</p>
+    <p><b>Casa do Toad:</b> fica no caminho de cada mundo. Escolha um dos três baús; o item vai para o inventário (até 28 itens).</p>
+    <p><b>Movimento:</b> setas ou A/D. Z ou espaço pula, e segurar deixa o pulo mais alto. Segure X ou Shift para correr: correndo no chão, o medidor P enche e libera a velocidade máxima.</p>
+    <p><b>Poderes:</b> com a Folha, pule com o P cheio e aperte Z repetidamente para voar por uns 4 segundos; na queda, toque Z várias vezes para planar. X dá o golpe de cauda. Com a Flor, X lança até duas bolas de fogo. Ao levar dano, Fogo e Guaxinim voltam a Super Mario; Super Mario volta a pequeno.</p>
+    <p><b>Cascos:</b> segure X ao tocar um casco parado para carregá-lo; solte X para chutar. Pisões seguidos sem tocar o chão valem 100, 200, 400… até 8000 e depois vidas.</p>
+    <p><b>Fim de fase:</b> toque a caixa de cartas. Três cartas dão uma vida; três iguais dão 2 (cogumelo), 3 (flor) ou 5 (estrela). Nas fortalezas, naves e tanques, pise três vezes no chefe e pegue a esfera. No castelo final, o Bowser quebra o chão quando cai com força.</p>
+    <p><b>Game over:</b> você recomeça no início do mundo com 4 vidas; as fases e a Casa do Toad do mundo reabrem, mas fortalezas destruídas continuam destruídas. Pontos e cartas voltam a zero.</p>
+    <p>P ou Esc pausa · M liga/desliga o som · F tela cheia. Controle USB/Bluetooth: direcional, A pula, B ou X corre, Start entra/pausa. O progresso é salvo neste navegador.</p>
+    <p>As músicas das fases e os efeitos são sintetizados em estilo 8-bit e compostos para este projeto. A faixa do mapa vem do arquivo da pasta music/.</p>
+    <button id="closeHelp" class="primary">Vamos jogar</button>
+  </dialog>
+
+  <script src="js/levels.js?v=3"></script>
+  <script src="js/engine.js?v=3"></script>
+  <script src="js/sprites.js?v=3"></script>
+  <script src="js/audio.js?v=3"></script>
+  <script src="js/scenery.js?v=3"></script>
+  <script src="js/renderer.js?v=3"></script>
+  <script src="js/local-music.js?v=3"></script>
+  <script src="js/music-config.js?v=3"></script>
+  <script src="js/tracks.js?v=3"></script>
+  <script src="js/app.js?v=3"></script>
+</body>
+</html>

@@ -1,337 +1,1368 @@
-/* Independent, deterministic platform game. Original series: Nintendo. */
+/* Motor determinístico do jogo. Física e regras seguem os valores documentados de
+ * Super Mario Bros. 3 (TASVideos, Data Crystal e Super Mario Wiki). Série original: Nintendo. */
 (() => {
-'use strict';
-const TILE=16,W=384,H=256,PLAY=224;
-const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-const noise=n=>{let x=Math.imul(n|0,374761393)+1988|0;x=Math.imul(x^(x>>>13),1274126177);return ((x^(x>>>16))>>>0)/4294967296;};
-const overlap=(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
-const WORLDS=[
- {name:'REINO DOS CAMPOS',theme:'grass',sky:'#77bfe8',land:'#67ad46',ink:'#24463e'},
- {name:'DUNAS DO DESERTO',theme:'desert',sky:'#f2d288',land:'#dfa34f',ink:'#654927'},
- {name:'ILHAS DO MAR',theme:'water',sky:'#83d3e9',land:'#4caaa5',ink:'#234c70'},
- {name:'TERRA GIGANTE',theme:'giant',sky:'#98cce9',land:'#73b145',ink:'#305932'},
- {name:'REINO DAS NUVENS',theme:'sky',sky:'#86cbe9',land:'#e7dcb8',ink:'#466a91'},
- {name:'TERRAS DE GELO',theme:'ice',sky:'#9dc7df',land:'#cde9e7',ink:'#4d6e96'},
- {name:'LABIRINTO DOS CANOS',theme:'pipe',sky:'#8dc8d7',land:'#6e9c6b',ink:'#28574f'},
- {name:'CASTELO DE BOWSER',theme:'lava',sky:'#272a41',land:'#84616b',ink:'#201f32'}
-];
-const BLOCK={GROUND:1,BRICK:2,QUESTION:3,USED:4,STONE:5,PIPE_TL:6,PIPE_TR:7,PIPE_L:8,PIPE_R:9,PLATFORM:10,ICE:11,WOOD:12,SPIKE:13,LAVA:14};
-const solid=t=>t>0&&t!==10&&t!==13&&t!==14;
-function createLevel(index,bonus=false){
- const world=Math.floor(index/6),slot=index%6,spec=WORLDS[world];
- let theme=slot===3?'castle':slot===5?'airship':spec.theme;
- if(slot===1&&[0,3,6].includes(world))theme='underground';
- if(world===7&&slot===5)theme='bowser';
- if(bonus)theme='underground';
- const water=theme==='water',width=bonus?32:144+slot*8+world*2;
- const l={index,world,slot,theme,water,bonus,width:width*TILE,cols:width,rows:14,tiles:Array.from({length:14},()=>Array(width).fill(0)),
-   blocks:{},enemies:[],items:[],coins:[],platforms:[],pipes:[],goal:{x:(width-5)*TILE,y:144,w:24,h:40},boss:null};
- const set=(x,y,t)=>{if(x>=0&&x<width&&y>=0&&y<14)l.tiles[y][x]=t;};
- const groundType=theme==='ice'?11:['airship','bowser'].includes(theme)?12:['castle','underground'].includes(theme)?5:1;
- for(let x=0;x<width;x++)for(let y=12;y<14;y++)set(x,y,groundType);
- if(theme==='underground')for(let x=0;x<width;x++)set(x,0,5);
- const coin=(x,y)=>l.coins.push({x:x*TILE+4,y:y*TILE+2,w:8,h:12,taken:false});
- const block=(x,y,type=3,item='coin')=>{set(x,y,type);l.blocks[x+','+y]={item,bump:0};};
- const pipe=(x,height=2,secret=false)=>{
-  const top=12-height;set(x,top,6);set(x+1,top,7);
-  for(let y=top+1;y<12;y++){set(x,y,8);set(x+1,y,9);}
-  if(secret)l.pipes.push({x:x*TILE,y:top*TILE,w:32,exitX:(x+4)*TILE});
- };
- const enemy=(type,x,y=11,extra={})=>l.enemies.push({id:l.enemies.length,type,x:x*TILE,y:y*TILE,w:type==='koopa'?14:16,h:type==='koopa'?24:16,vx:type==='koopa'?-30:-25,vy:0,dir:-1,dead:false,active:false,grounded:false,timer:0,invuln:0,...extra});
- if(bonus){
-  for(let x=6;x<24;x+=2)for(let y=6;y<10;y+=2)coin(x,y);
-  for(let x=6;x<24;x++)set(x,10,2);
-  block(14,5,3,'star');pipe(27,2,true);l.goal=null;return l;
- }
- // First stretch is a safe runway, with the classic power-up progression.
- block(10,8,3,'power');block(12,8,2);block(13,8,3,'coin');block(14,8,2);block(18,5,3,'leaf');
- for(let x=20;x<=23;x++)coin(x,8);
- enemy('goomba',19,11);pipe(28,2,slot%2===0);
- if(slot>0)enemy('koopa',24,10.5);
- for(let segment=0;segment<5;segment++){
-  const x=36+segment*18,kind=(slot+segment+world)%5;
-  if(x>width-34)continue;
-  if(kind===0){
-   const gap=world>3?4:3;
-   for(let q=x+6;q<x+6+gap;q++)for(let y=12;y<14;y++)set(q,y,theme==='lava'?14:0);
-   for(let q=0;q<5;q++)coin(x+4+q,7-Math.round(Math.sin(q/4*Math.PI)*2));
-   for(let q=0;q<3;q++)set(x+1+q,10,10);
-   enemy(world>4?'koopa':'goomba',x+12,11);
-  }else if(kind===1){
-   pipe(x+4,2+(world%2),world===6);enemy('piranha',x+4+.5,8,{w:16,h:24,vx:0,baseY:(12-2-world%2)*16,timer:segment});
-   for(let q=0;q<4;q++)block(x+10+q,8,q===1?3:2,q===1?(segment%2?'power':'coin'):'coin');
-   enemy('koopa',x+14,10.5);
-  }else if(kind===2){
-   for(let q=0;q<5;q++){set(x+q,10,10);coin(x+q,8);}for(let q=0;q<4;q++)set(x+7+q,7,10);
-   block(x+8,4,3,segment===2?'star':'coin');enemy('goomba',x+12,11);
-   if(world>=3)l.platforms.push({x:(x+13)*16,y:144,w:40,h:8,baseX:(x+13)*16,baseY:144,axis:'y',amp:30,rate:1.2,phase:segment});
-  }else if(kind===3){
-   for(let q=0;q<4;q++)for(let y=11-q;y<12;y++)set(x+4+q,y,groundType);
-   for(let q=0;q<4;q++)for(let y=8+q;y<12;y++)set(x+8+q,y,groundType);
-   coin(x+7,6);coin(x+8,6);enemy('goomba',x+14,11);
-  }else{
-   for(let q=0;q<6;q++)block(x+3+q,8,q%2?2:3,q===2?'power':'coin');
-   enemy('goomba',x+5,11);enemy('koopa',x+11,10.5);
-   if(world>=4)enemy('goomba',x+15,11);
+  'use strict';
+
+  const LV = globalThis.MarioLevels;
+  const { TILE, ROWS, FLOOR, T, WORLDS, createLevel, createBonusRoom, isSolid, isOneWay } = LV;
+  const W = 384, H = 256, PLAY = 224;
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+  // O SMB3 mede velocidade em 1/16 de pixel por quadro, a 60 quadros por segundo.
+  const U = 60 / 16; // unidade de velocidade -> px/s
+  const A = 3600 / 16; // unidade de aceleração -> px/s²
+  const PHYS = Object.freeze({
+    walk: 24 * U, // 1,5 px/quadro
+    run: 40 * U, // 2,5 px/quadro
+    pspeed: 56 * U, // 3,5 px/quadro com o medidor P cheio
+    fly: 38 * U,
+    swim: 24 * U,
+    sand: 6 * U,
+    accel: 1 * A,
+    skid: 2.5 * A,
+    release: 1 * A,
+    iceAccel: 0.4 * A,
+    iceRelease: 0.15 * A,
+    iceSkid: 0.8 * A,
+    jump: 56 * U,
+    jumpBonus: [0, 2 * U, 4 * U, 8 * U], // tabela por velocidade horizontal / 16
+    gravity: 5 * A,
+    gravityHold: 1 * A, // segurando pulo enquanto sobe
+    holdUntil: -32 * U,
+    maxFall: 69 * U,
+    bounce: 48 * U,
+    bounceHold: 56 * U,
+    swimStroke: 32 * U,
+    swimGravity: 1.5 * A,
+    swimFall: 16 * U,
+    leap: 40 * U,
+    sandJump: 40 * U,
+    sandSink: 4 * U,
+    flyClimb: 24 * U,
+    tailFall: 16 * U,
+    pmeterStep: 8 / 60,
+    pmeterDrain: 24 / 60,
+    flightTime: 256 / 60,
+    timeUnit: 0.68 // um "segundo" do relógio do SMB3 dura 0,68 s
+  });
+
+  const CHAIN = [100, 200, 400, 800, 1000, 2000, 4000, 8000];
+  const CARDS = ['mushroom', 'flower', 'star'];
+  const ITEMS = ['mushroom', 'leaf', 'flower', 'star'];
+  const POWERS = ['small', 'big', 'raccoon', 'fire'];
+  const CARD_BONUS = { mushroom: 2, flower: 3, star: 5 };
+  const TOAD_ITEMS = [
+    ['mushroom', 'leaf', 'flower'], ['leaf', 'flower', 'mushroom'], ['flower', 'leaf', 'star'], ['leaf', 'mushroom', 'flower'],
+    ['leaf', 'star', 'flower'], ['flower', 'leaf', 'mushroom'], ['leaf', 'flower', 'star'], ['star', 'flower', 'leaf']
+  ];
+  const THEME_MUSIC = {
+    grass: 'overworld', desert: 'overworld', giant: 'overworld', sky: 'overworld', ice: 'overworld', pipe: 'overworld',
+    sea: 'overworld', water: 'water', underground: 'underground', castle: 'castle', lava: 'castle', bowser: 'castle',
+    airship: 'airship', tank: 'airship'
+  };
+
+  // Mapa de cada mundo: um caminho próprio com 8 casas.
+  const MAP_NODES = Object.freeze([
+    { kind: 'start', x: 40, y: 168 },
+    { kind: 'stage', slot: 0, x: 96, y: 168 },
+    { kind: 'stage', slot: 1, x: 152, y: 168 },
+    { kind: 'toad', x: 152, y: 112 },
+    { kind: 'stage', slot: 2, x: 208, y: 112 },
+    { kind: 'stage', slot: 3, x: 264, y: 112 },
+    { kind: 'stage', slot: 4, x: 264, y: 58 },
+    { kind: 'stage', slot: 5, x: 330, y: 58 }
+  ]);
+  const nodeOfSlot = slot => MAP_NODES.findIndex(n => n.kind === 'stage' && n.slot === slot);
+  const SLOT_LABEL = ['1', '2', '3', 'F', '4', 'N'];
+  function stageName(index) {
+    const world = Math.floor(index / 6), slot = index % 6;
+    if (slot === 3) return `Fortaleza ${world + 1}`;
+    if (slot === 5) return world === 7 ? 'Castelo do Bowser' : `Nave ${world + 1}`;
+    return `${world + 1}-${SLOT_LABEL[slot]}`;
   }
- }
- if(water){
-  // A continuous seabed and swimming leave room to pass every obstacle.
-  for(let x=0;x<width;x++)for(let y=12;y<14;y++)set(x,y,1);
-  l.enemies=l.enemies.filter(e=>e.type==='piranha');
-  for(let x=22;x<width-20;x+=13)enemy('fish',x,5+Math.floor(noise(x)*5),{vx:-24,baseY:(5+Math.floor(noise(x)*5))*16});
-  for(let x=34;x<width-20;x+=17){coin(x,4);coin(x+1,4);coin(x+2,4);}
- }
- if(['castle','airship','bowser','lava'].includes(theme)){
-  for(let x=34;x<width-35;x+=23){if(theme==='castle'||theme==='lava')set(x,11,13);else enemy('cannon',x,10,{w:16,h:32,vx:0,timer:1.6});}
- }
- // End runway has no random obstacles and enough space for the boss encounter.
- for(let x=width-27;x<width;x++)for(let y=1;y<12;y++)set(x,y,0);
- l.enemies=l.enemies.filter(e=>e.x<(width-28)*16);
- if(slot===3||slot===5){
-  const bowser=theme==='bowser';l.boss={type:bowser?'bowser':'boss',x:(width-14)*16,y:bowser?148:160,w:bowser?38:30,h:bowser?44:32,
-    vx:bowser?0:-55,vy:0,hp:3,dead:false,grounded:false,timer:2.4,invuln:0,slams:0,air:false};
-  l.arenaStart=(width-25)*16;l.goal.y=144;
- }
- for(let x=width-8;x<width-5;x++)coin(x,9);
- return l;
-}
-class MarioGame{
- constructor(){this.newGame();this.mode='title';}
- newGame(){
-  this.mode='map';this.stage=0;this.highest=0;this.completed=[];this.lives=3;this.score=0;this.coins=0;this.cards=[];
-  this.inventory=[];this.toadVisits=[];this.savedPower='small';this.pendingStar=0;this.events=[];this.particles=[];this.projectiles=[];
-  this.clock=0;this.prev={};this.camera=0;this.deathTimer=0;this.clearTimer=0;this.returnLevel=null;this.level=null;this.player=null;
- }
- emit(type,data={}){this.events.push({type,...data});}
- takeEvents(){const e=this.events;this.events=[];return e;}
- get world(){return Math.floor(this.stage/6);}
- get slot(){return this.stage%6;}
- get music(){if(this.mode==='map'||this.mode==='title')return 'map';if(this.player?.star>0)return 'star';return ({grass:'overworld',desert:'overworld',giant:'overworld',sky:'overworld',ice:'overworld',pipe:'overworld',water:'water',underground:'underground',castle:'castle',lava:'castle',bowser:'castle',airship:'airship'})[this.level?.theme]||'overworld';}
- exportSave(){return {version:1,stage:this.stage,highest:this.highest,completed:[...this.completed],lives:Math.max(3,this.lives),score:this.score,coins:this.coins,cards:[...this.cards],inventory:[...this.inventory],toadVisits:[...this.toadVisits],power:this.savedPower};}
- loadSave(s){
-  if(!s||s.version!==1||!Number.isInteger(s.highest)||s.highest<0||s.highest>47||!Number.isInteger(s.stage)||s.stage<0||s.stage>s.highest)return false;
-  const items=['mushroom','leaf','flower','star'];this.newGame();this.stage=s.stage;this.highest=s.highest;
-  this.completed=Array.isArray(s.completed)?[...new Set(s.completed.filter(n=>Number.isInteger(n)&&n>=0&&n<48&&n<=s.highest))]:[];
-  this.lives=clamp(Math.floor(Number(s.lives)||3),1,99);this.score=clamp(Math.floor(Number(s.score)||0),0,9999999);this.coins=clamp(Math.floor(Number(s.coins)||0),0,99);
-  this.inventory=(Array.isArray(s.inventory)?s.inventory:[]).filter(n=>items.includes(n)).slice(0,8);this.cards=(Array.isArray(s.cards)?s.cards:[]).filter(n=>['mushroom','flower','star'].includes(n)).slice(0,2);
-  this.toadVisits=(Array.isArray(s.toadVisits)?s.toadVisits:[]).filter(n=>Number.isInteger(n)&&n>=0&&n<8);this.savedPower=['small','big','raccoon','fire'].includes(s.power)?s.power:'small';return true;
- }
- selectStage(delta){if(this.mode!=='map')return;this.stage=clamp(this.stage+delta,0,this.highest);this.emit('select');}
- visitToad(){
-  if(this.mode!=='map'||this.toadVisits.includes(this.world)||this.inventory.length>=8)return false;
-  const item=['leaf','flower','star','mushroom'][this.world%4];this.inventory.push(item);this.toadVisits.push(this.world);this.emit('gift',{item});return true;
- }
- useItem(i){if(this.mode!=='map'||!this.inventory[i])return false;const item=this.inventory.splice(i,1)[0];
-  if(item==='star')this.pendingStar=12;else this.savedPower={mushroom:'big',leaf:'raccoon',flower:'fire'}[item];this.emit('powerup');return true;}
- enterStage(index=this.stage){
-  if(!Number.isInteger(index)||index<0||index>this.highest)return false;
-  this.stage=index;this.level=createLevel(index);this.returnLevel=null;this.mode='playing';this.time=300;this.hurry=false;
-  this.camera=0;this.clock=0;this.particles=[];this.projectiles=[];this.prev={};
-  const power=this.savedPower,h=power==='small'?16:28;
-  this.player={x:40,y:192-h,w:14,h,power,vx:0,vy:0,facing:1,grounded:true,duck:false,star:this.pendingStar,invuln:0,
-    pMeter:0,flight:0,tail:0,attackCooldown:0,carry:null,coyote:0,jumpBuffer:0,pipeCooldown:0};this.pendingStar=0;
-  this.emit('enterStage',{stage:index});return true;
- }
- pause(){if(['playing','map','dying','clear'].includes(this.mode)){this.beforePause=this.mode;this.mode='paused';this.emit('pause');}}
- resume(){if(this.mode==='paused'){this.mode=this.beforePause;this.prev={};this.emit('resume');}}
- returnToMap(){if(this.mode==='title')return;this.mode='map';this.savedPower=this.player?.power||this.savedPower;this.returnLevel=null;this.emit('map');}
- continueGame(){this.lives=3;this.savedPower='small';this.stage=Math.floor(this.stage/6)*6;this.mode='map';this.emit('map');}
- tile(tx,ty){if(tx<0||tx>=this.level.cols)return 5;if(ty<0||ty>=14)return 0;return this.level.tiles[ty][tx];}
- colliders(box,oneWay=false){
-  const out=[];for(let y=Math.floor(box.y/16);y<=Math.floor((box.y+box.h-.01)/16);y++)for(let x=Math.floor(box.x/16);x<=Math.floor((box.x+box.w-.01)/16);x++){
-   const t=this.tile(x,y);if(solid(t)||(oneWay&&t===10))out.push({x:x*16,y:y*16,w:16,h:16,tx:x,ty:y,t});
-  }return out;
- }
- moveBody(b,dt,{player=false,oneWay=true}={}){
-  const oldY=b.y;b.x+=b.vx*dt;let hitX=false;
-  for(const c of this.colliders(b)){if(!overlap(b,c))continue;if(b.type==='shell'&&Math.abs(b.vx)>100&&[2,3].includes(c.t)){this.hitBlock(c.tx,c.ty,true);if(this.tile(c.tx,c.ty)===0)continue;}if(b.vx>0)b.x=c.x-b.w;else if(b.vx<0)b.x=c.x+c.w;hitX=true;}
-  if(hitX){if(player)b.vx=0;else b.vx*=-1;}
-  b.y+=b.vy*dt;b.grounded=false;let hitY=false;
-  for(const c of this.colliders(b,oneWay)){
-   if(c.t===10&&(b.vy<0||oldY+b.h>c.y+2))continue;if(!overlap(b,c))continue;
-   if(b.vy>0){b.y=c.y-b.h;b.grounded=true;}else if(b.vy<0){b.y=c.y+c.h;if(player)this.hitBlock(c.tx,c.ty);}
-   b.vy=0;hitY=true;
+
+  const normalize = (i = {}) => ({
+    move: clamp(Math.round(Number(i.move) || 0), -1, 1),
+    jump: !!i.jump, run: !!i.run, down: !!i.down, up: !!i.up, start: !!i.start
+  });
+
+  class MarioGame {
+    constructor() {
+      this.newGame();
+      this.mode = 'title';
+    }
+
+    newGame() {
+      this.mode = 'map';
+      this.world = 0;
+      this.mapPos = 0;
+      this.completed = [];
+      this.toadOpened = [];
+      this.lives = 4;
+      this.score = 0;
+      this.coins = 0;
+      this.cards = [];
+      this.inventory = [];
+      this.savedPower = 'small';
+      this.pendingStar = 0;
+      this.highest = 0;
+      this.events = [];
+      this.particles = [];
+      this.projectiles = [];
+      this.clock = 0;
+      this.camera = 0;
+      this.level = null;
+      this.mainLevel = null;
+      this.player = null;
+      this.prev = {};
+      this.mapAnim = null;
+      this.invOpen = false;
+      this.invCursor = 0;
+      this.toad = null;
+      this.banner = null;
+      this.time = 300;
+      this.hurry = false;
+      this.freeze = 0;
+      this.deathTimer = 0;
+      this.ending = null;
+      this.currentStage = -1;
+      this.beforePause = 'map';
+    }
+
+    emit(type, data = {}) { this.events.push({ type, ...data }); }
+    takeEvents() { const e = this.events; this.events = []; return e; }
+
+    get node() { return MAP_NODES[this.mapPos]; }
+    get inLevel() { return ['playing', 'dying', 'clear'].includes(this.mode) || (this.mode === 'paused' && ['playing', 'dying', 'clear'].includes(this.beforePause)); }
+    get stage() {
+      if (this.inLevel && this.currentStage >= 0) return this.currentStage;
+      const n = this.node;
+      return n && n.kind === 'stage' ? this.world * 6 + n.slot : -1;
+    }
+    get slot() { return this.stage >= 0 ? this.stage % 6 : -1; }
+    get music() {
+      const mode = this.mode === 'paused' ? this.beforePause : this.mode;
+      if (['map', 'title', 'toad', 'gameover', 'victory'].includes(mode) || !this.level) return 'map';
+      if (this.player && this.player.star > 0) return 'star';
+      return THEME_MUSIC[this.level.theme] || 'overworld';
+    }
+    stageName(index = this.stage) { return index >= 0 ? stageName(index) : ''; }
+    isCompleted(index) { return this.completed.includes(index); }
+    isPassable(pos) {
+      const n = MAP_NODES[pos];
+      if (!n) return false;
+      if (n.kind === 'stage') return this.isCompleted(this.world * 6 + n.slot);
+      return true;
+    }
+    rouletteCard(clock = this.clock) { return CARDS[Math.floor(clock * 7.5) % 3]; }
+
+    /* ---------------------------- Save ---------------------------- */
+    continueFields() {
+      const w = this.world;
+      return {
+        lives: 4, score: 0, cards: [], savedPower: 'small', pendingStar: 0, mapPos: 0,
+        completed: this.completed.filter(s => Math.floor(s / 6) !== w || s % 6 === 3),
+        toadOpened: this.toadOpened.filter(x => x !== w)
+      };
+    }
+    exportSave() {
+      const s = {
+        version: 2, world: this.world, mapPos: this.mapPos, completed: [...this.completed], toadOpened: [...this.toadOpened],
+        lives: this.lives, score: this.score, coins: this.coins, cards: [...this.cards], inventory: [...this.inventory],
+        power: this.savedPower, highest: this.highest, finished: this.mode === 'victory'
+      };
+      if (this.mode === 'gameover' || this.lives <= 0) {
+        const c = this.continueFields();
+        Object.assign(s, { lives: c.lives, score: c.score, cards: c.cards, power: c.savedPower, mapPos: 0, completed: c.completed, toadOpened: c.toadOpened });
+      }
+      return s;
+    }
+    loadSave(raw) {
+      if (!raw || typeof raw !== 'object') return false;
+      let s = raw;
+      if (s.version === 1) s = migrateV1(s);
+      if (!s || s.version !== 2) return false;
+      if (!Number.isInteger(s.world) || s.world < 0 || s.world > 7) return false;
+      if (!Number.isInteger(s.mapPos) || s.mapPos < 0 || s.mapPos >= MAP_NODES.length) return false;
+      this.newGame();
+      this.world = s.world;
+      this.completed = Array.isArray(s.completed) ? [...new Set(s.completed.filter(n => Number.isInteger(n) && n >= 0 && n < 48))] : [];
+      this.toadOpened = Array.isArray(s.toadOpened) ? [...new Set(s.toadOpened.filter(n => Number.isInteger(n) && n >= 0 && n < 8))] : [];
+      this.mapPos = this.reachable(s.mapPos);
+      this.lives = clamp(Math.floor(Number(s.lives) || 4), 1, 99);
+      this.score = clamp(Math.floor(Number(s.score) || 0), 0, 9999999);
+      this.coins = clamp(Math.floor(Number(s.coins) || 0), 0, 99);
+      this.cards = (Array.isArray(s.cards) ? s.cards : []).filter(c => CARDS.includes(c)).slice(0, 2);
+      this.inventory = (Array.isArray(s.inventory) ? s.inventory : []).filter(i => ITEMS.includes(i)).slice(0, 28);
+      this.savedPower = POWERS.includes(s.power) ? s.power : 'small';
+      this.highest = Math.max(0, ...this.completed.map(n => n + 1));
+      return true;
+    }
+    // Garante que a posição salva não pule casas não concluídas.
+    reachable(pos) {
+      let p = 0;
+      while (p < pos && this.isPassable(p)) p++;
+      return p;
+    }
+
+    /* ----------------------------- Mapa ---------------------------- */
+    mapMove(dir, edge = true) {
+      if (this.mode !== 'map' || this.mapAnim || this.invOpen || !dir) return false;
+      const to = this.mapPos + dir;
+      if (to < 0 || to >= MAP_NODES.length || (dir > 0 && !this.isPassable(this.mapPos))) {
+        if (edge) this.emit('bump');
+        return false;
+      }
+      this.mapAnim = { from: this.mapPos, to, t: 0 };
+      this.emit('select');
+      return true;
+    }
+    mapEnter() {
+      if (this.mode !== 'map' || this.mapAnim) return false;
+      const n = this.node;
+      if (n.kind === 'stage') {
+        const s = this.world * 6 + n.slot;
+        if (this.isCompleted(s)) { this.emit('bump'); return false; }
+        return this.enterStage(s);
+      }
+      if (n.kind === 'toad') {
+        if (this.toadOpened.includes(this.world)) { this.emit('bump'); return false; }
+        this.openToad();
+        return true;
+      }
+      return false;
+    }
+    stepMap(dt, inp, pressed) {
+      this.clock += dt;
+      if (this.banner) { this.banner.time -= dt; if (this.banner.time <= 0) this.banner = null; }
+      if (this.mapAnim) {
+        this.mapAnim.t += dt / 0.24;
+        if (this.mapAnim.t < 1) return;
+        this.mapPos = this.mapAnim.to;
+        this.mapAnim = null;
+      }
+      const moveEdge = inp.move !== 0 && inp.move !== (this.prev.move || 0);
+      if (this.invOpen) {
+        if (!this.inventory.length || pressed('run')) { this.invOpen = false; this.emit('select'); return; }
+        if (moveEdge) { this.invCursor = clamp(this.invCursor + inp.move, 0, this.inventory.length - 1); this.emit('select'); }
+        if (pressed('jump') || pressed('start')) this.useItem(this.invCursor);
+        return;
+      }
+      if (pressed('run') && this.inventory.length) { this.invOpen = true; this.invCursor = 0; this.emit('select'); return; }
+      if (pressed('jump') || pressed('start')) { if (this.mapEnter()) return; }
+      if (inp.move) this.mapMove(inp.move, moveEdge);
+    }
+
+    /* ------------------------ Casa do Toad ------------------------ */
+    openToad() {
+      const pool = TOAD_ITEMS[this.world];
+      const seed = (this.score + this.coins * 7 + this.world * 13 + Math.floor(this.clock * 60)) >>> 0;
+      const rng = LV.mulberry32(seed);
+      this.toad = { cursor: 1, opened: -1, item: null, timer: 0, items: [0, 1, 2].map(() => pool[Math.floor(rng() * pool.length)]) };
+      this.mode = 'toad';
+      this.emit('enterToad');
+    }
+    stepToad(dt, inp, pressed) {
+      this.clock += dt;
+      const t = this.toad;
+      if (t.opened < 0) {
+        const moveEdge = inp.move !== 0 && inp.move !== (this.prev.move || 0);
+        if (moveEdge) { t.cursor = clamp(t.cursor + inp.move, 0, 2); this.emit('select'); }
+        if (pressed('jump') || pressed('start')) {
+          t.opened = t.cursor;
+          t.item = t.items[t.cursor];
+          this.addItem(t.item);
+          t.timer = 2;
+          this.emit('powerup');
+        }
+        return;
+      }
+      t.timer -= dt;
+      if (t.timer <= 0) {
+        if (!this.toadOpened.includes(this.world)) this.toadOpened.push(this.world);
+        this.toad = null;
+        this.mode = 'map';
+        this.emit('map');
+      }
+    }
+    addItem(item) {
+      if (!ITEMS.includes(item)) return;
+      if (this.inventory.length >= 28) this.inventory[27] = item;
+      else this.inventory.push(item);
+    }
+    canUseItem(i) {
+      const item = this.inventory[i];
+      if (this.mode !== 'map' || !item) return false;
+      if (item === 'mushroom') return this.savedPower === 'small';
+      if (item === 'leaf') return this.savedPower !== 'raccoon';
+      if (item === 'flower') return this.savedPower !== 'fire';
+      return this.pendingStar === 0;
+    }
+    useItem(i) {
+      if (!this.canUseItem(i)) { this.emit('bump'); return false; }
+      const item = this.inventory.splice(i, 1)[0];
+      if (item === 'star') this.pendingStar = 12;
+      else this.savedPower = { mushroom: 'big', leaf: 'raccoon', flower: 'fire' }[item];
+      this.invCursor = clamp(this.invCursor, 0, Math.max(0, this.inventory.length - 1));
+      if (!this.inventory.length) this.invOpen = false;
+      this.emit('powerup');
+      return true;
+    }
+
+    /* --------------------------- Fases --------------------------- */
+    enterStage(index = this.stage) {
+      if (!Number.isInteger(index) || index < 0 || index > 47) return false;
+      this.world = Math.floor(index / 6);
+      this.mapPos = nodeOfSlot(index % 6);
+      this.currentStage = index;
+      this.level = createLevel(index);
+      this.mainLevel = this.level;
+      this.mode = 'playing';
+      this.time = this.level.time;
+      this.hurry = false;
+      this.freeze = 0;
+      this.clock = 0;
+      this.camera = 0;
+      this.particles = [];
+      this.projectiles = [];
+      this.ending = null;
+      this.invOpen = false;
+      this.prev = { jump: true, run: true, down: true, start: true };
+      const power = this.savedPower, h = power === 'small' ? 16 : 28;
+      this.player = {
+        x: this.level.spawn.x, y: this.level.spawn.y - h, w: 14, h, power, vx: 0, vy: 0, facing: 1, grounded: true,
+        duck: false, star: this.pendingStar, invuln: 0, pm: 0, pmFill: 0, pmDrain: 0, flight: 0, flap: 0, wag: 0,
+        tail: 0, attackCooldown: 0, carry: null, chain: 0, starChain: 0, pipe: null, pipeCooldown: 0, coyote: 0,
+        jumpBuffer: 0, jumpHeld: false, skidding: false, inSand: false, swimming: false, prevBottom: 0, deathJump: false
+      };
+      this.pendingStar = 0;
+      this.emit('enterStage', { stage: index });
+      return true;
+    }
+
+    pause() {
+      if (['playing', 'map', 'toad', 'dying', 'clear'].includes(this.mode)) {
+        this.beforePause = this.mode;
+        this.mode = 'paused';
+        this.emit('pause');
+      }
+    }
+    resume() {
+      if (this.mode !== 'paused') return;
+      this.mode = this.beforePause;
+      this.prev = { jump: true, run: true, down: true, start: true };
+      this.emit('resume');
+    }
+    continueGame() {
+      if (this.mode !== 'gameover') return false;
+      Object.assign(this, this.continueFields());
+      this.mode = 'map';
+      this.mapAnim = null;
+      this.invOpen = false;
+      this.emit('map');
+      return true;
+    }
+    endGame() {
+      if (this.mode !== 'gameover') return false;
+      Object.assign(this, this.continueFields());
+      this.mode = 'title';
+      return true;
+    }
+
+    tile(tx, ty) {
+      const l = this.level;
+      if (tx < 0 || tx >= l.cols) return T.STONE;
+      if (ty < 0 || ty >= ROWS) return T.EMPTY;
+      return l.tiles[ty][tx];
+    }
+    setTile(tx, ty, t) { if (tx >= 0 && tx < this.level.cols && ty >= 0 && ty < ROWS) this.level.tiles[ty][tx] = t; }
+
+    colliders(box, mode = 'solid') {
+      const out = [];
+      const y0 = Math.floor(box.y / TILE), y1 = Math.floor((box.y + box.h - 0.01) / TILE);
+      const x0 = Math.floor(box.x / TILE), x1 = Math.floor((box.x + box.w - 0.01) / TILE);
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const t = this.tile(x, y);
+        const one = isOneWay(t), hidden = t === T.HIDDEN;
+        if (isSolid(t) || (mode !== 'solid' && one) || (mode === 'player' && hidden)) out.push({ x: x * TILE, y: y * TILE, w: TILE, h: TILE, tx: x, ty: y, t, oneWay: one, hidden });
+      }
+      return out;
+    }
+
+    moveBody(b, dt, opts = {}) {
+      const player = !!opts.player;
+      const oldY = b.y;
+      let hitX = false, hitY = false;
+      b.x += b.vx * dt;
+      for (const c of this.colliders(b)) {
+        if (!overlap(b, c)) continue;
+        if (b.type === 'shell' && Math.abs(b.vx) > 100 && (c.t === T.BRICK || c.t === T.QUESTION)) {
+          this.hitBlock(c.tx, c.ty, 'shell', b);
+          if (!isSolid(this.tile(c.tx, c.ty))) continue;
+        }
+        if (b.vx > 0) b.x = c.x - b.w;
+        else if (b.vx < 0) b.x = c.x + c.w;
+        hitX = true;
+      }
+      if (hitX) b.vx = player ? 0 : -b.vx;
+      b.y += b.vy * dt;
+      b.grounded = false;
+      const heads = [];
+      const vy = b.vy;
+      for (const c of this.colliders(b, player ? 'player' : 'oneway')) {
+        if (!overlap(b, c)) continue;
+        if (c.oneWay && (vy < 0 || oldY + b.h > c.y + 1)) continue;
+        if (c.hidden && (vy >= 0 || oldY < c.y + c.h - 0.5)) continue;
+        if (vy > 0) { b.y = c.y - b.h; b.grounded = true; hitY = true; }
+        else if (vy < 0) { b.y = c.y + c.h; hitY = true; heads.push(c); }
+      }
+      if (hitY) b.vy = 0;
+      if (vy >= 0) {
+        for (const p of this.level.platforms) {
+          if (b.x + b.w > p.x && b.x < p.x + p.w && oldY + b.h <= p.oldY + 3 && b.y + b.h >= p.y && b.y < p.y + p.h) {
+            b.y = p.y - b.h;
+            b.vy = 0;
+            b.grounded = true;
+            b.x += p.dx || 0;
+          }
+        }
+      }
+      if (player && heads.length) {
+        const cx = Math.floor((b.x + b.w / 2) / TILE);
+        const hit = heads.find(c => c.tx === cx) || heads[0];
+        this.hitBlock(hit.tx, hit.ty, 'player');
+      }
+      return { hitX, hitY };
+    }
+
+    award(points, x, y) {
+      if (points === '1UP') {
+        this.lives = Math.min(99, this.lives + 1);
+        this.emit('oneup');
+        this.particles.push({ kind: 'text', text: '1UP', x, y, vy: -30, life: 0.9 });
+        return;
+      }
+      this.score = Math.min(9999999, this.score + points);
+      this.particles.push({ kind: 'text', text: String(points), x, y, vy: -30, life: 0.8 });
+    }
+    chainPoints(holder, key) {
+      const n = holder[key] || 0;
+      holder[key] = n + 1;
+      return n < CHAIN.length ? CHAIN[n] : '1UP';
+    }
+    addCoin(x, y) {
+      this.coins++;
+      this.score = Math.min(9999999, this.score + 50);
+      this.emit('coin');
+      if (this.coins >= 100) {
+        this.coins -= 100;
+        this.lives = Math.min(99, this.lives + 1);
+        this.emit('oneup');
+        this.particles.push({ kind: 'text', text: '1UP', x, y, vy: -30, life: 0.9 });
+      }
+    }
+    debris(x, y, color = '#d18a48') {
+      for (let i = 0; i < 4; i++) this.particles.push({ kind: 'debris', x: x + 4 + (i % 2) * 8, y: y + 4 + (i > 1 ? 8 : 0), vx: (i % 2 ? 1 : -1) * 70, vy: i > 1 ? -150 : -260, life: 0.9, color });
+    }
+    puff(x, y) { for (let i = 0; i < 6; i++) this.particles.push({ kind: 'puff', x: x + (i % 3) * 6, y: y + Math.floor(i / 3) * 8, vx: (i % 3 - 1) * 30, vy: -20, life: 0.45 }); }
+
+    hitBlock(tx, ty, by = 'player', source = null) {
+      const l = this.level, t = this.tile(tx, ty), key = tx + ',' + ty;
+      if (![T.BRICK, T.QUESTION, T.HIDDEN].includes(t)) {
+        if (t === T.USED && by === 'player') this.emit('bump');
+        return;
+      }
+      const data = l.blocks[key];
+      if (data && data.bump > 0) return;
+      const group = data && data.group ? l.groups[data.group] : null;
+      const tiles = group ? [[group.x, group.y], [group.x + 1, group.y], [group.x, group.y + 1], [group.x + 1, group.y + 1]] : [[tx, ty]];
+      const origin = group ? l.blocks[group.x + ',' + group.y] : data;
+      const item = origin ? origin.item : null;
+      const p = this.player;
+      const strong = by !== 'player' || (p && p.power !== 'small');
+      if (t === T.BRICK && !item) {
+        if (strong) {
+          for (const [x, y] of tiles) { this.setTile(x, y, T.EMPTY); delete l.blocks[x + ',' + y]; this.debris(x * TILE, y * TILE); }
+          this.score = Math.min(9999999, this.score + 10);
+          this.emit('break');
+        } else {
+          for (const [x, y] of tiles) l.blocks[x + ',' + y] = { ...(l.blocks[x + ',' + y] || {}), item: null, bump: 0.18 };
+          this.emit('bump');
+        }
+        this.bumpEnemiesAbove(tiles);
+        return;
+      }
+      for (const [x, y] of tiles) {
+        this.setTile(x, y, T.USED);
+        const d = l.blocks[x + ',' + y] || (l.blocks[x + ',' + y] = {});
+        d.item = null;
+        d.bump = 0.18;
+        d.group = group ? data.group : null;
+      }
+      const ox = (group ? group.x : tx) * TILE + (group ? 8 : 0), oy = (group ? group.y : ty) * TILE;
+      const dir = p && p.x + p.w / 2 > ox + 8 ? -1 : 1;
+      let kind = item || 'coin';
+      if (kind === 'power') kind = p && p.power !== 'small' ? origin.alt || 'leaf' : 'mushroom';
+      if (kind === 'coin') {
+        this.addCoin(ox, oy - 16);
+        this.particles.push({ kind: 'coin', x: ox + 4, y: oy - 14, vy: -220, life: 0.5, gravity: 600 });
+      } else this.spawnItem(kind, ox, oy, dir);
+      this.bumpEnemiesAbove(tiles);
+    }
+    spawnItem(type, x, y, dir) {
+      const it = { type, x, y, w: 16, h: 16, vx: 0, vy: 0, life: 0, grounded: false, emerge: type === 'leaf' ? 0 : 1, dir };
+      if (type === 'leaf') { it.y = y - 16; it.vy = -230; }
+      this.level.items.push(it);
+      this.emit('sprout');
+    }
+    bumpEnemiesAbove(tiles) {
+      for (const [x, y] of tiles) {
+        for (const e of this.level.enemies) {
+          if (e.dead || e.held || ['piranha', 'bullet'].includes(e.type)) continue;
+          if (e.x + e.w > x * TILE && e.x < x * TILE + TILE && Math.abs(e.y + e.h - y * TILE) < 5) this.defeatEnemy(e, 'bump', 100);
+        }
+        for (const c of this.level.coins) {
+          if (!c.taken && c.x >= x * TILE && c.x < x * TILE + TILE && c.y + c.h <= y * TILE + 2 && c.y + c.h > y * TILE - 18) { c.taken = true; this.addCoin(c.x, c.y); }
+        }
+      }
+    }
+
+    setPower(power) {
+      const p = this.player;
+      const h = power === 'small' ? 16 : p.duck ? 16 : 28;
+      p.y += p.h - h;
+      p.h = h;
+      p.power = power;
+      if (power === 'small') p.duck = false;
+    }
+    grow(power) {
+      const p = this.player;
+      if (power === 'raccoon' || p.power === 'raccoon') this.puff(p.x - 2, p.y + p.h - 16);
+      this.setPower(power);
+      this.freeze = 0.45;
+      this.emit('powerup');
+    }
+    collectItem(item) {
+      const p = this.player;
+      item.dead = true;
+      if (item.type === 'oneup') { this.award('1UP', item.x, item.y); return; }
+      if (item.type === 'star') { p.star = 12; p.starChain = 0; this.emit('powerup'); }
+      else if (item.type === 'mushroom') { if (p.power === 'small') this.grow('big'); else this.emit('powerup'); }
+      else if (item.type === 'leaf') { if (p.power !== 'raccoon') this.grow('raccoon'); else this.emit('powerup'); }
+      else if (item.type === 'flower') { if (p.power !== 'fire') this.grow('fire'); else this.emit('powerup'); }
+      this.award(1000, item.x, item.y);
+    }
+    damage() {
+      const p = this.player;
+      if (this.mode !== 'playing' || !p || p.invuln > 0 || p.star > 0 || p.pipe) return;
+      if (p.power === 'fire' || p.power === 'raccoon') {
+        this.puff(p.x - 2, p.y + p.h - 16);
+        this.setPower('big');
+      } else if (p.power === 'big') this.setPower('small');
+      else { this.die(); return; }
+      p.invuln = 2;
+      p.flight = 0;
+      p.pm = 0;
+      this.releaseShell();
+      this.freeze = 0.3;
+      this.emit('powerdown');
+    }
+    die() {
+      if (this.mode !== 'playing') return;
+      const p = this.player;
+      this.mode = 'dying';
+      this.deathTimer = 0;
+      p.vx = 0;
+      p.vy = 0;
+      p.deathJump = false;
+      p.pipe = null;
+      if (p.carry) { p.carry.held = false; p.carry = null; }
+      if (p.power !== 'small') { p.y += p.h - 16; p.h = 16; p.power = 'small'; }
+      this.savedPower = 'small';
+      this.emit('death');
+    }
+    defeatEnemy(e, kind, points) {
+      if (e.dead) return;
+      e.dead = true;
+      e.held = false;
+      e.deathKind = kind;
+      e.deathTime = kind === 'stomp' ? 0.4 : 1.4;
+      if (kind !== 'stomp') { e.vy = -220; e.vx = (e.x < (this.player ? this.player.x : 0) ? -1 : 1) * 40; }
+      if (this.player && this.player.carry === e) this.player.carry = null;
+      if (points !== undefined) this.award(points, e.x, e.y);
+      this.emit(kind === 'stomp' || kind === 'fall' ? 'stomp' : 'kick');
+    }
+    toShell(e) {
+      e.type = 'shell';
+      const h = e.giant ? 28 : 14;
+      e.y += e.h - h;
+      e.h = h;
+      e.vx = 0;
+      e.shellTime = 0;
+      e.chain = 0;
+    }
+    kickShell(e, dir) {
+      e.vx = dir * 190;
+      e.dir = dir;
+      e.grace = 0.2;
+      e.chain = 0;
+      this.emit('kick');
+    }
+    releaseShell() {
+      const p = this.player;
+      if (!p || !p.carry) return;
+      const e = p.carry;
+      e.held = false;
+      e.x = p.facing > 0 ? p.x + p.w + 1 : p.x - e.w - 1;
+      e.y = p.y + p.h - e.h;
+      p.carry = null;
+      if (this.colliders(e).length) { e.x = p.x + (p.w - e.w) / 2; }
+      this.kickShell(e, p.facing);
+    }
+    attack() {
+      const p = this.player;
+      if (p.attackCooldown > 0 || p.duck) return;
+      if (p.power === 'fire') {
+        if (this.projectiles.filter(a => a.kind === 'fire').length >= 2) return;
+        this.projectiles.push({ kind: 'fire', x: p.x + (p.facing > 0 ? p.w : -8), y: p.y + 8, w: 8, h: 8, vx: p.facing * 240, vy: 60, life: 3 });
+        p.attackCooldown = 0.2;
+        this.emit('fire');
+      } else if (p.power === 'raccoon') {
+        p.tail = 0.25;
+        p.attackCooldown = 0.32;
+        this.emit('tail');
+        const hit = { x: p.x - 10, y: p.y + p.h - 14, w: p.w + 20, h: 12 };
+        for (const e of this.level.enemies) {
+          if (e.dead || e.held || (e.type === 'piranha' && e.hidden) || !overlap(hit, e)) continue;
+          if (e.type === 'koopa') { this.toShell(e); e.vy = -160; this.award(100, e.x, e.y); this.emit('kick'); }
+          else this.defeatEnemy(e, 'tail', 100);
+        }
+        for (const b of this.colliders(hit)) if (b.t === T.BRICK || b.t === T.QUESTION) this.hitBlock(b.tx, b.ty, 'tail');
+        const boss = this.level.boss;
+        if (boss && boss.awake && !boss.dead && boss.type === 'boss' && boss.invuln <= 0 && overlap(hit, boss)) this.hurtBoss(1);
+      }
+    }
+
+    inWater(b) {
+      const w = this.level && this.level.water;
+      return !!w && b.x + b.w / 2 < w.x1 && b.y + b.h / 2 > w.top;
+    }
+    onIce(p) {
+      const y = Math.floor((p.y + p.h + 1) / TILE);
+      return this.tile(Math.floor((p.x + 2) / TILE), y) === T.ICE || this.tile(Math.floor((p.x + p.w - 2) / TILE), y) === T.ICE;
+    }
+    touching(box, tileType, pad = 0) {
+      const b = { x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 };
+      const y0 = Math.floor(b.y / TILE), y1 = Math.floor((b.y + b.h - 0.01) / TILE);
+      const x0 = Math.floor(b.x / TILE), x1 = Math.floor((b.x + b.w - 0.01) / TILE);
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (this.tile(x, y) === tileType) return true;
+      return false;
+    }
+
+    /* ---------------------------- Passo ---------------------------- */
+    step(dt, input = {}) {
+      if (!Number.isFinite(dt) || dt <= 0) return;
+      dt = Math.min(dt, 1 / 30);
+      const inp = normalize(input);
+      const pressed = k => inp[k] && !this.prev[k];
+      switch (this.mode) {
+        case 'map': this.stepMap(dt, inp, pressed); break;
+        case 'toad': this.stepToad(dt, inp, pressed); break;
+        case 'gameover': if (pressed('jump') || pressed('start')) this.continueGame(); break;
+        case 'playing': this.stepPlaying(dt, inp, pressed); break;
+        case 'dying': this.stepDying(dt); break;
+        case 'clear': this.stepClear(dt); break;
+        default: break;
+      }
+      this.prev = inp;
+    }
+
+    stepPlaying(dt, inp, pressed) {
+      const p = this.player, l = this.level;
+      if (this.freeze > 0) { this.freeze -= dt; return; }
+      if (p.pipe) { this.stepPipe(dt); this.updateParticles(dt); return; }
+      this.clock += dt;
+      this.time = Math.max(0, this.time - dt / PHYS.timeUnit);
+      if (this.time < 100 && !this.hurry) { this.hurry = true; this.emit('hurry'); }
+      if (this.time <= 0) { this.die(); return; }
+      for (const k of ['star', 'invuln', 'flight', 'flap', 'wag', 'tail', 'attackCooldown', 'pipeCooldown', 'jumpBuffer', 'coyote']) p[k] = Math.max(0, p[k] - dt);
+      if (p.star <= 0) p.starChain = 0;
+      this.updatePlatforms(dt);
+      this.updatePlayer(dt, inp, pressed);
+      if (this.mode !== 'playing' || p.pipe) return;
+      this.updateCannons(dt);
+      this.updateItems(dt);
+      this.updateEnemies(dt, inp);
+      if (this.mode !== 'playing') return;
+      this.updateBoss(dt);
+      if (this.mode !== 'playing') return;
+      this.updateProjectiles(dt);
+      if (this.mode !== 'playing') return;
+      for (const c of l.coins) if (!c.taken && overlap(p, c)) { c.taken = true; this.addCoin(c.x, c.y); }
+      if (l.goal && p.x + p.w > l.goal.x && p.x < l.goal.x + l.goal.w) this.clearStage('card');
+      if (l.orb && l.orb.ready && overlap(p, l.orb)) this.clearStage('orb');
+      for (const d of Object.values(l.blocks)) if (d.bump > 0) d.bump = Math.max(0, d.bump - dt);
+      this.updateParticles(dt);
+      this.updateCamera(dt);
+    }
+
+    updatePlatforms() {
+      for (const pl of this.level.platforms) {
+        pl.oldY = pl.y;
+        const ox = pl.x;
+        const wave = Math.sin(this.clock * pl.rate + pl.phase) * pl.amp;
+        pl.x = pl.baseX + (pl.axis === 'x' ? wave : 0);
+        pl.y = pl.baseY + (pl.axis === 'y' ? wave : 0);
+        pl.dx = pl.x - ox;
+      }
+    }
+
+    updatePlayer(dt, inp, pressed) {
+      const p = this.player, l = this.level;
+      const water = this.inWater(p);
+      p.swimming = water;
+      const icy = p.grounded && this.onIce(p);
+      const move = inp.move;
+
+      // Agachar (só Super, Fogo e Guaxinim, como no original)
+      const wantDuck = inp.down && p.grounded && p.power !== 'small' && !water;
+      if (wantDuck !== p.duck && p.power !== 'small') {
+        const h = wantDuck ? 16 : 28;
+        const box = { x: p.x, y: p.y + p.h - h, w: p.w, h };
+        if (wantDuck || this.colliders(box).length === 0) { p.y = box.y; p.h = h; p.duck = wantDuck; }
+      }
+
+      // Movimento horizontal
+      let max = PHYS.walk;
+      if (water) max = PHYS.swim;
+      else if (inp.run) max = p.pm >= 7 ? PHYS.pspeed : PHYS.run;
+      if (p.flight > 0 && !p.grounded) max = Math.min(Math.max(max, PHYS.fly), PHYS.fly);
+      if (p.inSand) max = PHYS.sand;
+      const sameDir = move !== 0 && (p.vx === 0 || Math.sign(p.vx) === move);
+      p.skidding = false;
+      if (move && !p.duck) {
+        p.facing = move;
+        if (!sameDir) {
+          p.vx += move * (icy ? PHYS.iceSkid : PHYS.skid) * dt;
+          p.skidding = p.grounded;
+          if (Math.sign(p.vx) === move) p.vx = move * Math.min(Math.abs(p.vx), 20);
+        } else if (Math.abs(p.vx) < max) {
+          p.vx = clamp(p.vx + move * (icy ? PHYS.iceAccel : PHYS.accel) * dt, -max, max);
+        } else if (p.grounded || water || p.inSand || p.flight > 0) {
+          p.vx = Math.sign(p.vx) * Math.max(max, Math.abs(p.vx) - PHYS.release * dt);
+        }
+      } else if (p.grounded || water || p.inSand) {
+        const dec = icy ? PHYS.iceRelease : PHYS.release;
+        p.vx = Math.sign(p.vx) * Math.max(0, Math.abs(p.vx) - dec * dt);
+      }
+
+      // Medidor P: enche correndo no chão em velocidade máxima, uma seta a cada 8 quadros.
+      const fullRun = p.grounded && inp.run && move !== 0 && sameDir && Math.abs(p.vx) >= PHYS.run - 1 && !water && !p.duck && !p.inSand;
+      if (p.flight > 0) p.pm = 7;
+      else if (fullRun) {
+        p.pmDrain = 0;
+        p.pmFill += dt;
+        while (p.pmFill >= PHYS.pmeterStep) { p.pmFill -= PHYS.pmeterStep; if (p.pm < 7) p.pm++; }
+      } else if (p.grounded || p.power === 'raccoon' || water) {
+        p.pmFill = 0;
+        p.pmDrain += dt;
+        while (p.pmDrain >= PHYS.pmeterDrain) { p.pmDrain -= PHYS.pmeterDrain; if (p.pm > 0) p.pm--; }
+      }
+
+      // Pulo, nado, voo e balanço da cauda
+      if (p.grounded) p.coyote = 0.05;
+      if (!inp.jump) p.jumpHeld = false;
+      if (pressed('jump')) p.jumpBuffer = 0.05;
+      if (water) {
+        if (pressed('jump')) {
+          p.vy = p.y + p.h / 2 < l.water.top + 12 ? -PHYS.leap : -PHYS.swimStroke;
+          p.jumpBuffer = 0;
+          this.emit('swim');
+        }
+        p.vy = Math.min(PHYS.swimFall, p.vy + PHYS.swimGravity * dt);
+      } else {
+        const canJump = p.grounded || p.coyote > 0 || p.inSand;
+        if (p.jumpBuffer > 0 && canJump) {
+          const idx = Math.min(3, Math.floor(Math.abs(p.vx) / U / 16));
+          p.vy = p.inSand ? -PHYS.sandJump : -(PHYS.jump + PHYS.jumpBonus[idx]);
+          p.grounded = false;
+          p.coyote = 0;
+          p.jumpBuffer = 0;
+          p.jumpHeld = true;
+          if (p.power === 'raccoon' && p.pm >= 7 && !p.inSand && p.flight <= 0) { p.flight = PHYS.flightTime; this.emit('fly'); }
+          else if (p.flight > 0) this.emit('fly');
+          else this.emit('jump');
+        } else if (pressed('jump') && p.power === 'raccoon' && !p.grounded) {
+          if (p.flight > 0) { p.flap = 8 / 60; this.emit('tail'); }
+          else if (p.vy > -20) { p.wag = 16 / 60; this.emit('tail'); }
+          p.tail = Math.max(p.tail, 0.12);
+        }
+        if (p.flap > 0) p.vy = -PHYS.flyClimb;
+        else {
+          const hold = p.jumpHeld && inp.jump && p.vy < PHYS.holdUntil;
+          p.vy = Math.min(PHYS.maxFall, p.vy + (hold ? PHYS.gravityHold : PHYS.gravity) * dt);
+          if (p.wag > 0 && p.vy > PHYS.tailFall) p.vy = PHYS.tailFall;
+        }
+        if (p.inSand) p.vy = Math.min(p.vy, PHYS.sandSink);
+      }
+
+      // Ataque (B): bola de fogo ou cauda; segurar B com casco parado = carregar
+      if (pressed('run') && !p.carry) this.attack();
+      if (p.carry && !inp.run) this.releaseShell();
+
+      // Entrar em cano segurando para baixo
+      if (inp.down && p.grounded && !p.carry && p.pipeCooldown <= 0 && this.tryPipe()) return;
+
+      p.prevBottom = p.y + p.h;
+      const res = this.moveBody(p, dt, { player: true });
+      if (res.hitX && p.grounded) { p.pm = 0; p.pmFill = 0; }
+      if (p.flight > 0 && p.grounded && p.vy >= 0 && !inp.run) p.flight = 0;
+
+      // Limites horizontais
+      const minX = l.autoscroll || this.arenaLocked() ? this.camera : 0;
+      const maxX = l.autoscroll ? Math.min(l.width, this.camera + W) - p.w : l.width - p.w;
+      if (p.x < minX) {
+        p.x = minX;
+        if (l.autoscroll && this.colliders(p).length) { this.die(); return; }
+        if (p.vx < 0) p.vx = 0;
+      }
+      if (p.x > maxX) { p.x = maxX; if (p.vx > 0) p.vx = 0; }
+      p.y = Math.max(-64, p.y);
+
+      if (p.y > PLAY + 16) { this.die(); return; }
+      if (this.touching({ x: p.x + 2, y: p.y + 4, w: p.w - 4, h: p.h - 4 }, T.LAVA)) { this.die(); return; }
+      if (this.touching(p, T.SPIKE, 1)) this.damage();
+      p.inSand = this.touching({ x: p.x + 2, y: p.y + p.h - 6, w: p.w - 4, h: 6 }, T.SAND);
+      if (p.inSand && p.y + 4 > (ROWS - 1) * TILE) { this.die(); return; }
+      if (p.grounded && !p.inSand) p.chain = 0;
+      if (p.carry) {
+        const e = p.carry;
+        e.x = p.facing > 0 ? p.x + p.w - 4 : p.x - e.w + 4;
+        e.y = p.y + p.h - e.h - (p.power === 'small' ? 1 : 6);
+      }
+    }
+
+    tryPipe() {
+      const p = this.player, l = this.level;
+      const pipe = l.pipes.find(q => p.x + p.w / 2 > q.x + 6 && p.x + p.w / 2 < q.x + q.w - 6 && Math.abs(p.y + p.h - q.y) < 3);
+      if (!pipe) return false;
+      p.pipe = { phase: 'in', t: 0, target: pipe.target, startY: p.y };
+      p.x = pipe.x + (pipe.w - p.w) / 2;
+      p.vx = 0;
+      p.vy = 0;
+      p.duck = false;
+      if (p.power !== 'small') { p.y += p.h - 28; p.h = 28; }
+      this.emit('pipe');
+      return true;
+    }
+    stepPipe(dt) {
+      const p = this.player, pp = p.pipe;
+      pp.t += dt;
+      const dur = 0.55;
+      if (pp.phase === 'in') {
+        p.y = pp.startY + Math.min(1, pp.t / dur) * (p.h + 2);
+        if (pp.t < dur) return;
+        const exit = this.warp(pp.target);
+        pp.phase = 'out';
+        pp.t = 0;
+        pp.exitTop = exit.top;
+        p.x = exit.x - p.w / 2 + 2;
+        p.y = exit.top + 2;
+        this.emit('pipe');
+        return;
+      }
+      p.y = pp.exitTop + 2 - Math.min(1, pp.t / dur) * (p.h + 2);
+      if (pp.t >= dur) {
+        p.y = pp.exitTop - p.h;
+        p.pipe = null;
+        p.pipeCooldown = 0.6;
+        p.grounded = true;
+        this.prev.down = true;
+      }
+      this.updateCamera(dt, true);
+    }
+    warp(target) {
+      const main = this.mainLevel;
+      let exit;
+      if (target.type === 'bonus') {
+        main.bonusRoom = main.bonusRoom || createBonusRoom(main);
+        this.level = main.bonusRoom;
+        exit = this.level.spawnPipe;
+      } else if (target.type === 'return') {
+        this.level = main;
+        exit = main.secretExit;
+      } else exit = { x: target.x, top: target.top };
+      this.projectiles = [];
+      this.camera = clamp(exit.x - W * 0.4, 0, Math.max(0, this.level.width - W));
+      return exit;
+    }
+
+    arenaLocked() {
+      const l = this.level, b = l.boss;
+      return !!b && b.awake && !l.autoscroll;
+    }
+
+    updateCamera(dt, instant = false) {
+      const l = this.level, p = this.player;
+      const maxCam = Math.max(0, l.width - W);
+      if (l.autoscroll && !l.bonus) {
+        this.camera = Math.min(maxCam, this.camera + l.autoscroll * dt);
+        return;
+      }
+      let target = p.x + p.w / 2 - W * 0.42;
+      if (this.arenaLocked()) target = Math.max(target, l.arenaStart - 32);
+      const cam = clamp(target, 0, maxCam);
+      this.camera = instant ? cam : cam;
+    }
+
+    updateCannons(dt) {
+      const p = this.player, l = this.level;
+      for (const c of l.cannons) {
+        const cx = c.tx * TILE + 8;
+        if (cx < this.camera - 32 || cx > this.camera + W + 32) continue;
+        if (this.tile(c.tx, c.ty) !== T.CANNON) continue;
+        c.timer -= dt;
+        if (c.timer > 0) continue;
+        c.timer = 3.2;
+        const pc = p.x + p.w / 2;
+        if (Math.abs(pc - cx) < 40) continue;
+        const dir = pc < cx ? -1 : 1;
+        const e = { id: l.enemies.length + 1000, type: 'bullet', x: dir < 0 ? c.tx * TILE - 16 : c.tx * TILE + 16, y: c.ty * TILE + 1, w: 16, h: 14, vx: dir * 66, vy: 0, dir, dead: false, active: true, timer: 0, grace: 0, chain: 0 };
+        l.enemies.push(e);
+        this.emit('cannon');
+      }
+    }
+
+    updateItems(dt) {
+      const p = this.player, l = this.level;
+      for (const it of l.items) {
+        it.life += dt;
+        if (it.emerge > 0) {
+          it.emerge = Math.max(0, it.emerge - dt / 0.5);
+          it.y -= (16 / 0.5) * dt;
+          if (it.emerge === 0) it.vx = it.type === 'flower' ? 0 : it.type === 'star' ? it.dir * 70 : it.dir * 60;
+          if (it.emerge < 0.5 && overlap(p, it)) this.collectItem(it);
+          continue;
+        }
+        if (it.type === 'leaf') {
+          if (it.vy < 0) it.vy += PHYS.gravity * dt;
+          else { it.vy = 40; it.vx = Math.cos(it.life * 3.2) * 70; }
+          it.x += it.vx * dt;
+          it.y += it.vy * dt;
+        } else if (it.type !== 'flower') {
+          it.vy = Math.min(PHYS.maxFall, it.vy + PHYS.gravity * dt);
+          this.moveBody(it, dt);
+          if (it.type === 'star' && it.grounded) it.vy = -280;
+        }
+        if (!it.dead && overlap(p, it)) this.collectItem(it);
+      }
+      l.items = l.items.filter(a => !a.dead && a.y < PLAY + 32 && a.x > -32 && a.x < l.width + 32);
+    }
+
+    updateEnemies(dt, inp) {
+      const p = this.player, l = this.level;
+      const walkers = [];
+      for (const e of l.enemies) {
+        if (e.dead) {
+          e.deathTime -= dt;
+          if (e.deathKind !== 'stomp') { e.vy += PHYS.gravity * 0.7 * dt; e.y += e.vy * dt; e.x += (e.vx || 0) * dt; }
+          continue;
+        }
+        if (!e.active) {
+          if (e.x < this.camera + W + 24 && e.x + e.w > this.camera - 24) e.active = true;
+          else continue;
+        }
+        if (e.type === 'bullet') {
+          if (e.x > this.camera + W + 64 || e.x + e.w < this.camera - 64) { e.dead = true; e.deathTime = 0; continue; }
+        } else if (e.x > this.camera + W + 160 || e.x + e.w < this.camera - 160) continue;
+        e.timer += dt;
+        e.grace = Math.max(0, e.grace - dt);
+        if (e.held) {
+          e.shellTime = (e.shellTime || 0) + dt;
+          if (e.shellTime > 7) { this.reviveKoopa(e); this.damage(); }
+          continue;
+        }
+        switch (e.type) {
+          case 'goomba':
+          case 'koopa': {
+            e.vx = e.dir * (e.type === 'koopa' ? 32 : 30);
+            e.vy = Math.min(PHYS.maxFall, e.vy + PHYS.gravity * dt);
+            const r = this.moveBody(e, dt);
+            if (r.hitX) e.dir = -e.dir;
+            walkers.push(e);
+            break;
+          }
+          case 'shell': {
+            e.vy = Math.min(PHYS.maxFall, e.vy + PHYS.gravity * dt);
+            const before = e.vx;
+            this.moveBody(e, dt);
+            if (before !== 0 && e.vx !== before) this.emit('bump');
+            if (e.vx === 0) {
+              e.shellTime = (e.shellTime || 0) + dt;
+              if (e.shellTime > 7) this.reviveKoopa(e);
+            } else {
+              e.shellTime = 0;
+              for (const o of l.enemies) {
+                if (o === e || o.dead || o.held || (o.type === 'piranha' && o.hidden) || !overlap(e, o)) continue;
+                this.defeatEnemy(o, 'shell', this.chainPoints(e, 'chain'));
+              }
+            }
+            break;
+          }
+          case 'piranha': {
+            const period = 4;
+            const near = Math.abs(p.x + p.w / 2 - (e.x + e.w / 2)) < 28;
+            let t = (e.timer + e.phase) % period;
+            if (t < 1.6 && near) { e.timer -= dt; t = (e.timer + e.phase) % period; }
+            const out = t < 1.6 ? 0 : t < 2.1 ? (t - 1.6) / 0.5 : t < 3.5 ? 1 : 1 - (t - 3.5) / 0.5;
+            e.y = e.baseY - out * e.h;
+            e.hidden = out < 0.2;
+            e.hb = { x: e.x + 2, y: e.y + 2, w: 12, h: Math.max(0, e.baseY - e.y - 2) };
+            if (e.hidden) continue;
+            break;
+          }
+          case 'fish':
+            e.x += e.vx * dt;
+            e.y = e.baseY + Math.sin(e.timer * 1.6 + (e.phase || 0)) * 18;
+            break;
+          case 'bullet':
+            e.x += e.vx * dt;
+            break;
+          default:
+            break;
+        }
+        if (e.y > PLAY + 32) { e.dead = true; e.deathTime = 0; continue; }
+        if (this.touching(e, T.LAVA)) { e.dead = true; e.deathTime = 0; continue; }
+        this.enemyVsPlayer(e, inp);
+        if (this.mode !== 'playing') return;
+      }
+      // Inimigos que andam se viram ao se encontrar
+      for (let i = 0; i < walkers.length; i++) for (let j = i + 1; j < walkers.length; j++) {
+        const a = walkers[i], b = walkers[j];
+        if (!a.dead && !b.dead && overlap(a, b)) {
+          if (a.x < b.x) { a.dir = -1; b.dir = 1; } else { a.dir = 1; b.dir = -1; }
+        }
+      }
+      l.enemies = l.enemies.filter(e => !e.dead || e.deathTime > 0);
+    }
+    reviveKoopa(e) {
+      const p = this.player;
+      if (p.carry === e) p.carry = null;
+      e.held = false;
+      e.type = 'koopa';
+      const h = e.giant ? 48 : 24;
+      e.y -= h - e.h;
+      e.h = h;
+      e.dir = p.x < e.x ? -1 : 1;
+      e.shellTime = 0;
+      e.grace = 0.3;
+      if (this.colliders(e).length) e.y = Math.floor((e.y + e.h) / TILE) * TILE - e.h;
+    }
+    enemyVsPlayer(e, inp) {
+      const p = this.player;
+      if (p.pipe || p.carry === e) return;
+      const box = e.type === 'piranha' ? e.hb : e;
+      if (!box || box.h <= 0 || !overlap(p, box) || e.grace > 0) return;
+      if (p.star > 0) { this.defeatEnemy(e, 'star', this.chainPoints(p, 'starChain')); return; }
+      const stompable = !['piranha', 'fish'].includes(e.type) && !this.inWater(p);
+      const stomp = stompable && p.vy > 0 && p.prevBottom <= e.y + 6 + (e.giant ? 6 : 0);
+      if (stomp) {
+        p.y = e.y - p.h;
+        p.vy = -(inp.jump ? PHYS.bounceHold : PHYS.bounce);
+        p.jumpHeld = !!inp.jump;
+        p.grounded = false;
+        const pts = this.chainPoints(p, 'chain');
+        if (e.type === 'koopa') { this.toShell(e); this.award(pts, e.x, e.y); this.emit('stomp'); }
+        else if (e.type === 'shell') {
+          if (e.vx !== 0) { e.vx = 0; e.shellTime = 0; this.award(pts, e.x, e.y); this.emit('stomp'); }
+          else this.kickShell(e, p.x + p.w / 2 < e.x + e.w / 2 ? 1 : -1);
+        } else this.defeatEnemy(e, e.type === 'goomba' ? 'stomp' : 'fall', pts);
+        return;
+      }
+      if (e.type === 'shell' && e.vx === 0) {
+        if (inp.run && !p.carry && !this.inWater(p) && !e.giant) { p.carry = e; e.held = true; this.emit('select'); }
+        else this.kickShell(e, p.x + p.w / 2 < e.x + e.w / 2 ? 1 : -1);
+        return;
+      }
+      this.damage();
+    }
+
+    hurtBoss(amount) {
+      const b = this.level.boss;
+      if (!b || b.dead || b.invuln > 0) return;
+      b.hp -= amount;
+      b.invuln = amount >= 1 ? 1 : 0.12;
+      b.hits = (b.hits || 0) + (amount >= 1 ? 1 : 0);
+      this.emit(amount >= 1 ? 'stomp' : 'bump');
+      if (b.hp <= 0) this.killBoss();
+    }
+    killBoss() {
+      const l = this.level, b = l.boss;
+      b.dead = true;
+      this.award(b.type === 'bowser' ? 10000 : 2000, b.x, b.y);
+      this.puff(b.x + 6, b.y + 6);
+      this.projectiles = this.projectiles.filter(a => a.kind === 'fire');
+      if (b.type === 'bowser') { this.clearStage('bowser'); return; }
+      l.orb = { x: b.x + b.w / 2 - 8, y: Math.max(16, b.y - 24), w: 16, h: 16, vy: -160, ready: false, grounded: false, vx: 0, life: 0 };
+      this.emit('orb');
+    }
+    updateBoss(dt) {
+      const l = this.level, p = this.player, b = l.boss;
+      if (l.orb) {
+        const o = l.orb;
+        o.life += dt;
+        o.vy = Math.min(PHYS.maxFall, o.vy + PHYS.gravity * 0.6 * dt);
+        this.moveBody(o, dt);
+        if (o.life > 0.6) o.ready = true;
+      }
+      if (!b || b.dead) return;
+      if (!b.awake) {
+        if (p.x + p.w > l.arenaStart + 24 || (l.autoscroll && this.camera >= l.width - W - 1)) { b.awake = true; this.emit('bossAwake'); }
+        else return;
+      }
+      b.invuln = Math.max(0, b.invuln - dt);
+      b.timer -= dt;
+      b.facing = p.x < b.x ? -1 : 1;
+      const left = l.arenaStart + 8, right = l.width - b.w - 8;
+      if (b.type === 'bowser') this.updateBowser(dt, b, left, right);
+      else {
+        const speed = 55 + (b.hits || 0) * 25;
+        if (b.invuln > 0.5) b.vx = 0;
+        else if (b.grounded) {
+          b.vx = b.facing * speed;
+          if (b.timer <= 0) { b.vy = -300; b.timer = 1.4 + ((b.hits || 0) % 2) * 0.4; this.emit('jump'); }
+        }
+        b.vy = Math.min(PHYS.maxFall, b.vy + PHYS.gravity * dt);
+        this.moveBody(b, dt);
+        b.x = clamp(b.x, left, right);
+      }
+      if (b.dead || this.mode !== 'playing') return;
+      if (overlap(p, b)) {
+        if (b.type === 'boss' && p.vy > 0 && p.prevBottom <= b.y + 10) {
+          p.vy = -PHYS.bounceHold;
+          p.y = b.y - p.h;
+          p.jumpHeld = true;
+          if (b.invuln <= 0) this.hurtBoss(1);
+        } else if (b.type === 'bowser' || b.invuln <= 0.5) this.damage();
+      }
+    }
+    updateBowser(dt, b, left, right) {
+      const l = this.level, p = this.player;
+      if (b.falling) {
+        b.vy = Math.min(PHYS.maxFall, b.vy + PHYS.gravity * dt);
+        b.y += b.vy * dt;
+        if (b.y > PLAY + 16) { b.hp = 0; this.killBoss(); }
+        return;
+      }
+      b.fireTimer -= dt;
+      const wasAir = !b.grounded;
+      if (b.grounded && b.timer <= 0) {
+        const pc = p.x + p.w / 2, bc = b.x + b.w / 2;
+        b.vy = -360;
+        b.vx = clamp((pc - bc) / 0.9, -110, 110);
+        b.pound = true;
+        b.timer = 2.6;
+        this.emit('jump');
+      } else if (b.grounded) {
+        b.vx = b.facing * 18;
+        if (b.fireTimer <= 0) {
+          b.fireTimer = 2.2;
+          const dir = b.facing;
+          this.projectiles.push({ kind: 'flame', x: dir < 0 ? b.x - 20 : b.x + b.w, y: b.y + 10, w: 22, h: 8, vx: dir * 80, vy: (p.y + p.h / 2 - (b.y + 14)) * 0.25, life: 7 });
+          this.emit('flame');
+        }
+      }
+      b.vy = Math.min(PHYS.maxFall, b.vy + PHYS.gravity * dt);
+      this.moveBody(b, dt);
+      b.x = clamp(b.x, left, right);
+      if (wasAir && b.grounded && b.pound) {
+        b.pound = false;
+        b.vx = 0;
+        this.debris(b.x + 8, b.y + b.h - 8, '#9c7466');
+        this.emit('break');
+        const y = Math.floor((b.y + b.h + 1) / TILE);
+        const x0 = Math.floor(b.x / TILE), x1 = Math.floor((b.x + b.w - 0.01) / TILE);
+        for (let x = x0; x <= x1; x++) {
+          if (this.tile(x, y) === T.BRICK) { this.setTile(x, y, T.EMPTY); this.debris(x * TILE, y * TILE, '#b06a4a'); }
+        }
+      }
+      if (!b.grounded && b.vy > 0 && b.y + b.h > FLOOR * TILE + 8) {
+        const x0 = Math.floor((b.x + 6) / TILE), x1 = Math.floor((b.x + b.w - 6) / TILE);
+        let hole = true;
+        for (let x = x0; x <= x1; x++) if (isSolid(this.tile(x, 12)) || isSolid(this.tile(x, 13))) hole = false;
+        if (hole) { b.falling = true; this.emit('bowserFall'); }
+      }
+    }
+
+    updateProjectiles(dt) {
+      const p = this.player, l = this.level;
+      for (const a of this.projectiles) {
+        a.life -= dt;
+        if (a.kind === 'fire') {
+          a.vy = Math.min(PHYS.maxFall, a.vy + 1100 * dt);
+          const before = a.vx;
+          const hit = this.moveBody(a, dt);
+          if (hit.hitX || a.vx !== before) { a.life = 0; this.particles.push({ kind: 'puff', x: a.x, y: a.y, vx: 0, vy: 0, life: 0.2 }); }
+          if (a.grounded) a.vy = -170;
+          for (const e of l.enemies) {
+            if (e.dead || e.held || ['bullet'].includes(e.type) || (e.type === 'piranha' && e.hidden)) continue;
+            const box = e.type === 'piranha' ? e.hb : e;
+            if (box && overlap(a, box)) { this.defeatEnemy(e, 'fire', 100); a.life = 0; break; }
+          }
+          const b = l.boss;
+          if (a.life > 0 && b && b.awake && !b.dead && overlap(a, b)) {
+            a.life = 0;
+            if (b.type === 'bowser') { b.hp -= 1; this.emit('bump'); if (b.hp <= 0) { b.falling = true; b.vy = -120; } }
+            else this.hurtBoss(0.2);
+          }
+        } else {
+          a.x += a.vx * dt;
+          a.y += a.vy * dt;
+          if (overlap(a, p)) { this.damage(); if (this.mode !== 'playing') return; }
+        }
+      }
+      this.projectiles = this.projectiles.filter(a => a.life > 0 && a.y < PLAY + 32 && a.y > -64 && a.x > this.camera - 64 && a.x < this.camera + W + 96);
+    }
+
+    updateParticles(dt) {
+      for (const a of this.particles) {
+        a.life -= dt;
+        a.x += (a.vx || 0) * dt;
+        a.y += (a.vy || 0) * dt;
+        if (a.kind === 'debris') a.vy += 900 * dt;
+        if (a.gravity) a.vy += a.gravity * dt;
+      }
+      this.particles = this.particles.filter(a => a.life > 0);
+    }
+
+    clearStage(kind) {
+      if (this.mode !== 'playing') return;
+      const l = this.level, p = this.player;
+      if (l.bonus) return;
+      if (kind === 'card' && l.boss && !l.boss.dead) return;
+      const stage = this.currentStage;
+      this.mode = 'clear';
+      const card = kind === 'card' ? this.rouletteCard() : null;
+      if (card) this.cards.push(card);
+      if (p.carry) { p.carry.held = false; p.carry.dead = true; p.carry.deathTime = 0; p.carry = null; }
+      p.star = 0;
+      p.flight = 0;
+      this.savedPower = p.power;
+      if (!this.completed.includes(stage)) this.completed.push(stage);
+      this.highest = Math.max(this.highest, Math.min(47, stage + 1));
+      this.ending = { kind, card, timer: 0, total: kind === 'bowser' ? 5 : 4, tallyRate: Math.max(60, this.time / 1.6), bonus: null };
+      const slot = stage % 6;
+      this.emit(kind === 'bowser' ? 'victory' : slot === 5 ? 'worldClear' : 'clear');
+    }
+    stepClear(dt) {
+      const e = this.ending, p = this.player;
+      e.timer += dt;
+      this.clock += dt;
+      if (e.timer > 0.6 && this.time > 0) {
+        const units = Math.min(this.time, e.tallyRate * dt);
+        const before = Math.ceil(this.time);
+        this.time = Math.max(0, this.time - units);
+        this.score = Math.min(9999999, this.score + (before - Math.ceil(this.time)) * 50);
+        if (before !== Math.ceil(this.time) && Math.floor(e.timer * 20) % 2 === 0) this.emit('tick');
+      }
+      if (e.kind === 'card') {
+        p.vx = 70;
+        p.facing = 1;
+        p.vy = Math.min(PHYS.maxFall, p.vy + PHYS.gravity * dt);
+        this.moveBody(p, dt);
+        if (p.y > PLAY + 16) { p.y = PLAY + 16; p.vy = 0; }
+      } else {
+        p.vx = 0;
+        p.vy = Math.min(PHYS.maxFall, p.vy + PHYS.gravity * dt);
+        this.moveBody(p, dt);
+      }
+      this.updateParticles(dt);
+      if (e.timer > 2.2 && !e.bonus && this.cards.length >= 3) {
+        const match = this.cards.every(c => c === this.cards[0]);
+        const lives = match ? CARD_BONUS[this.cards[0]] : 1;
+        this.lives = Math.min(99, this.lives + lives);
+        e.bonus = { lives, card: match ? this.cards[0] : null };
+        this.cards = [];
+        this.emit('oneup');
+      }
+      if (e.timer < e.total) return;
+      const stage = this.currentStage;
+      this.level = null;
+      this.mainLevel = null;
+      this.projectiles = [];
+      this.particles = [];
+      if (stage === 47) { this.mode = 'victory'; this.emit('save'); return; }
+      if (stage % 6 === 5) {
+        this.world = Math.min(7, this.world + 1);
+        this.mapPos = 0;
+        this.banner = { text: `MUNDO ${this.world + 1}`, sub: WORLDS[this.world].name, time: 3 };
+      }
+      this.mode = 'map';
+      this.emit('map');
+    }
+
+    stepDying(dt) {
+      const p = this.player;
+      this.deathTimer += dt;
+      if (this.deathTimer > 0.5 && !p.deathJump) { p.deathJump = true; p.vy = -270; }
+      if (p.deathJump) { p.vy += 700 * dt; p.y += p.vy * dt; }
+      if (this.deathTimer < 2.7) return;
+      this.lives -= 1;
+      this.level = null;
+      this.mainLevel = null;
+      this.projectiles = [];
+      this.particles = [];
+      this.savedPower = 'small';
+      if (this.lives <= 0) {
+        this.lives = 0;
+        this.mode = 'gameover';
+        this.emit('gameover');
+      } else {
+        this.mode = 'map';
+        this.emit('map');
+      }
+    }
+
+    // Estado mínimo para busca automática nos testes de jogabilidade.
+    snapshot() {
+      return {
+        player: { ...this.player, carry: null, pipe: null }, camera: this.camera, clock: this.clock, time: this.time,
+        mode: this.mode, prev: { ...this.prev }, freeze: this.freeze, platforms: this.level.platforms.map(p => ({ ...p }))
+      };
+    }
+    restore(s) {
+      this.player = { ...s.player };
+      this.camera = s.camera;
+      this.clock = s.clock;
+      this.time = s.time;
+      this.mode = s.mode;
+      this.prev = { ...s.prev };
+      this.freeze = s.freeze;
+      this.level.platforms = s.platforms.map(p => ({ ...p }));
+      this.ending = null;
+    }
   }
-  if(oneWay&&b.vy>=0)for(const platform of this.level.platforms){
-   if(b.x+b.w>platform.x&&b.x<platform.x+platform.w&&oldY+b.h<=platform.oldY+3&&b.y+b.h>=platform.y&&b.y<platform.y){b.y=platform.y-b.h;b.vy=0;b.grounded=true;b.x+=platform.dx||0;}
+
+  function migrateV1(s) {
+    if (!Number.isInteger(s.highest) || s.highest < 0 || s.highest > 47) return null;
+    if (!Number.isInteger(s.stage) || s.stage < 0 || s.stage > s.highest) return null;
+    const completed = Array.isArray(s.completed) ? s.completed.filter(n => Number.isInteger(n) && n >= 0 && n < 48 && n <= s.highest) : [];
+    const world = Math.floor(s.stage / 6);
+    let mapPos = 0;
+    while (mapPos < MAP_NODES.length - 1) {
+      const n = MAP_NODES[mapPos];
+      if (n.kind === 'stage' && !completed.includes(world * 6 + n.slot)) break;
+      mapPos++;
+    }
+    return {
+      version: 2, world, mapPos, completed, toadOpened: Array.isArray(s.toadVisits) ? s.toadVisits : [],
+      lives: s.lives, score: s.score, coins: s.coins, cards: s.cards, inventory: s.inventory, power: s.power
+    };
   }
-  return {hitX,hitY};
- }
- scorePoints(n,x=this.player?.x||0,y=this.player?.y||0){this.score=Math.min(9999999,this.score+n);this.particles.push({kind:'text',text:String(n),x,y,vy:-18,life:.8});}
- addCoin(x,y){this.coins++;this.scorePoints(50,x,y);this.emit('coin');if(this.coins>=100){this.coins-=100;this.lives=Math.min(99,this.lives+1);this.emit('oneup');}}
- debris(x,y,color='#d18a48'){for(let i=0;i<6;i++)this.particles.push({kind:'debris',x:x+8,y:y+8,vx:(i%3-1)*60,vy:-90-i*14,life:.65,color});}
- hitBlock(tx,ty,force=false){
-  const t=this.tile(tx,ty),key=tx+','+ty;if(![2,3,4].includes(t))return;
-  const data=this.level.blocks[key]||(this.level.blocks[key]={item:'coin',bump:0});if(data.bump>0)return;
-  if(t===4){this.emit('bump');return;}data.bump=.18;
-  if(t===2){
-   if(this.player.power!=='small'||force){this.level.tiles[ty][tx]=0;this.debris(tx*16,ty*16);this.scorePoints(10,tx*16,ty*16);this.emit('break');}
-   else this.emit('bump');
-  }else{
-   this.level.tiles[ty][tx]=4;let item=data.item;
-   if(item==='coin'){this.addCoin(tx*16,ty*16-16);this.particles.push({kind:'coin',x:tx*16+4,y:ty*16-12,vy:-70,life:.45});}
-   else{
-    if(item==='power')item=this.player.power==='small'?'mushroom':(this.world%2?'flower':'leaf');
-    if(item==='leaf'&&this.player.power==='small')item='mushroom';
-    this.level.items.push({type:item,x:tx*16,y:ty*16-16,w:16,h:16,vx:item==='flower'?0:32,vy:0,life:0,grounded:false});this.emit('powerup');
-   }
-  }
-  for(const e of this.level.enemies)if(!e.dead&&e.x+e.w>tx*16&&e.x<tx*16+16&&Math.abs(e.y+e.h-ty*16)<5)this.defeat(e,'bump');
- }
- setPower(power){const p=this.player;const h=power==='small'?16:28;p.y+=p.h-h;p.h=h;p.power=power;p.duck=false;this.savedPower=power;this.emit('powerup');}
- collectItem(item){item.dead=true;if(item.type==='star'){this.player.star=12;this.emit('powerup');}else this.setPower({mushroom:'big',leaf:'raccoon',flower:'fire'}[item.type]);this.scorePoints(1000,item.x,item.y);}
- damage(){
-  const p=this.player;if(this.mode!=='playing'||p.invuln>0||p.star>0)return;
-  if(p.power!=='small'){const bottom=p.y+p.h;p.power='small';p.h=16;p.y=bottom-16;p.invuln=2;p.flight=0;p.pMeter=0;this.savedPower='small';this.releaseShell();this.emit('powerdown');}
-  else this.die();
- }
- die(){if(this.mode!=='playing')return;this.mode='dying';this.deathTimer=1.6;this.player.vy=-240;this.player.vx=0;this.savedPower='small';this.releaseShell();this.emit('death');}
- defeat(e,kind='stomp'){
-  if(e.dead)return;e.dead=true;e.deathKind=kind;e.deathTime=.4;e.vy=-130;this.scorePoints(e.type==='boss'?1000:100,e.x,e.y);this.emit(kind==='stomp'?'stomp':'kick');
- }
- releaseShell(){const p=this.player;if(!p?.carry)return;const e=p.carry;e.held=false;e.x=p.x+(p.facing>0?p.w+2:-e.w-2);e.y=p.y+p.h-e.h;e.vx=p.facing*225;e.grace=.25;p.carry=null;this.emit('kick');}
- attack(){
-  const p=this.player;if(p.attackCooldown>0)return;
-  if(p.power==='fire'&&this.projectiles.filter(a=>a.kind==='fire').length<2){this.projectiles.push({kind:'fire',x:p.x+(p.facing>0?16:-6),y:p.y+10,w:6,h:6,vx:p.facing*230,vy:40,life:3});p.attackCooldown=.2;this.emit('fire');}
-  if(p.power==='raccoon'){
-   p.tail=.22;p.attackCooldown=.35;this.emit('tail');
-   const hit={x:p.x-12,y:p.y+8,w:p.w+24,h:20};
-   for(const e of this.level.enemies)if(!e.dead&&!e.held&&overlap(hit,e))this.defeat(e,'tail');
-   for(const b of this.colliders(hit))if([2,3].includes(b.t))this.hitBlock(b.tx,b.ty,true);
-  }
- }
- enterPipe(){
-  const p=this.player;if(!p.grounded||p.pipeCooldown>0)return false;
-  const pipe=this.level.pipes.find(q=>p.x+p.w/2>q.x+6&&p.x+p.w/2<q.x+q.w-6&&Math.abs(p.y+p.h-q.y)<3);if(!pipe)return false;
-  if(this.level.bonus){const state=this.returnLevel;this.level=state.level;p.x=state.x;p.y=192-p.h;this.camera=state.camera;this.returnLevel=null;}
-  else{this.returnLevel={level:this.level,x:pipe.exitX,camera:this.camera};this.level=createLevel(this.stage,true);p.x=32;p.y=192-p.h;this.camera=0;}
-  p.vx=0;p.vy=0;p.pipeCooldown=1;this.projectiles=[];this.emit('pipe');return true;
- }
- clearStage(){
-  if(this.mode!=='playing'||this.level.bonus)return;
-  if(this.level.boss&&!this.level.boss.dead)return;
-  this.mode='clear';this.clearTimer=2.4;this.scorePoints(Math.ceil(this.time)*10);this.savedPower=this.player.power;
-  const card=['mushroom','flower','star'][Math.floor(this.clock*5)%3];this.cards.push(card);
-  if(this.cards.length===3){const match=this.cards.every(c=>c===this.cards[0]);this.lives=Math.min(99,this.lives+(match?{mushroom:2,flower:3,star:5}[card]:1));this.cards=[];this.emit('oneup');}
-  if(!this.completed.includes(this.stage))this.completed.push(this.stage);
-  this.highest=Math.max(this.highest,Math.min(47,this.stage+1));
-  this.emit(this.stage===47?'victory':this.slot===5?'worldClear':'clear');
- }
- updateBoss(dt){
-  const b=this.level.boss,p=this.player;if(!b||b.dead||p.x<this.level.arenaStart-60)return;
-  b.invuln=Math.max(0,b.invuln-dt);b.timer-=dt;b.vy+=900*dt;
-  if(b.type==='bowser'){
-   if(b.timer<=0&&b.grounded){b.vy=-330;b.vx=clamp((p.x-b.x)*.8,-90,90);b.air=true;b.timer=3;}
-   if(b.timer>1.4&&b.timer<1.4+dt)this.projectiles.push({kind:'enemy',x:b.x,y:b.y+14,w:9,h:8,vx:p.x<b.x?-90:90,vy:0,life:5});
-  }else if(b.timer<=0&&b.grounded){b.vy=-260;b.vx=p.x<b.x?-70:70;b.timer=1.8;}
-  const wasAir=b.air;this.moveBody(b,dt);if(b.x<this.level.arenaStart){b.x=this.level.arenaStart;b.vx=Math.abs(b.vx);}if(b.x>this.level.width-90){b.x=this.level.width-90;b.vx=-Math.abs(b.vx);}
-  if(b.type==='bowser'&&wasAir&&b.grounded){
-   b.air=false;b.vx=0;b.slams++;this.debris(b.x+8,192);this.emit('break');
-   if(b.slams>=3){const cx=Math.floor((b.x+b.w/2)/16);for(let x=cx-1;x<=cx+1;x++)for(let y=12;y<14;y++)this.level.tiles[y][x]=0;b.dead=true;this.scorePoints(5000,b.x,b.y);this.emit('worldClear');}
-  }
-  if(!b.dead&&overlap(p,b)){
-   const stomp=p.vy>0&&p.y+p.h-b.y<15;
-   if(stomp&&b.type!=='bowser'&&b.invuln===0){b.hp--;b.invuln=1;p.vy=-275;this.emit('stomp');if(b.hp<=0){b.dead=true;this.scorePoints(2000,b.x,b.y);this.emit('worldClear');}}
-   else if(b.invuln===0)this.damage();
-  }
- }
- updateEnemies(dt,input){
-  const p=this.player;
-  for(const e of this.level.enemies){
-   if(e.dead){e.deathTime-=dt;e.y+=e.vy*dt;e.vy+=500*dt;continue;}
-   if(e.x>this.camera+W+48||e.x+e.w<this.camera-96)continue;
-   e.timer+=dt;e.grace=Math.max(0,(e.grace||0)-dt);
-   if(e.held){e.x=p.x+(p.facing>0?p.w:-e.w);e.y=p.y+p.h-e.h-3;continue;}
-   if(e.type==='piranha'){
-    const wave=Math.sin(e.timer*1.8),near=Math.abs(p.x-e.x)<28;e.hidden=wave<0||near;e.y=e.baseY-(e.hidden?0:24*Math.max(0,wave));
-    if(e.hidden)continue;
-   }else if(e.type==='fish'){e.x+=e.vx*dt;e.y=e.baseY+Math.sin(e.timer*1.7)*22;}
-   else if(e.type==='cannon'){
-    if(e.timer>2.8){e.timer=0;this.projectiles.push({kind:'bullet',x:e.x,y:e.y+4,w:12,h:10,vx:p.x<e.x?-85:85,vy:0,life:6});this.emit('fire');}
-   }else{e.vy=Math.min(420,e.vy+900*dt);this.moveBody(e,dt);if(e.y>PLAY+32){e.dead=true;continue;}}
-   if(e.type==='shell'&&Math.abs(e.vx)>100){
-    for(const other of this.level.enemies)if(other!==e&&!other.dead&&!other.held&&overlap(e,other))this.defeat(other,'shell');
-   }
-   if(!overlap(p,e)||e.grace>0)continue;
-   if(p.star>0){this.defeat(e,'star');continue;}
-   const stomp=!this.level.water&&p.vy>0&&(p.y+p.h-e.y<13)&&!['piranha','cannon'].includes(e.type);
-   if(stomp){
-    p.y=e.y-p.h;p.vy=input.jump?-350:-230;p.grounded=false;
-    if(e.type==='koopa'){e.type='shell';e.y+=10;e.h=14;e.vx=0;e.timer=0;this.scorePoints(100,e.x,e.y);this.emit('stomp');}
-    else if(e.type==='shell'){e.vx=Math.abs(e.vx)>0?0:p.facing*225;e.grace=.2;this.emit('kick');}
-    else this.defeat(e,'stomp');
-   }else if(e.type==='shell'&&e.vx===0){
-    if(input.run&&!p.carry){p.carry=e;e.held=true;this.emit('select');}else{e.vx=(p.x<e.x?1:-1)*225;e.grace=.25;this.emit('kick');}
-   }else this.damage();
-  }
-  this.level.enemies=this.level.enemies.filter(e=>!e.dead||e.deathTime>0);
- }
- updateProjectiles(dt){
-  for(const a of this.projectiles){
-   a.life-=dt;
-   if(a.kind==='fire'){
-    a.vy+=700*dt;const before=a.vx,hit=this.moveBody(a,dt);if(hit.hitX||a.vx!==before)a.life=0;if(a.grounded)a.vy=-180;
-    for(const e of this.level.enemies)if(!e.dead&&!e.hidden&&e.type!=='cannon'&&overlap(a,e)){this.defeat(e,'fire');a.life=0;break;}
-    const boss=this.level.boss;if(boss&&!boss.dead&&boss.type!=='bowser'&&boss.invuln<=0&&overlap(a,boss)){boss.hp-=.25;boss.invuln=.15;a.life=0;if(boss.hp<=0){boss.dead=true;this.scorePoints(2000,boss.x,boss.y);this.emit('worldClear');}}
-   }else{a.x+=a.vx*dt;a.y+=a.vy*dt;if(overlap(a,this.player)){this.damage();a.life=0;}}
-  }
-  this.projectiles=this.projectiles.filter(a=>a.life>0&&a.y<PLAY+32&&a.x>this.camera-64&&a.x<this.camera+W+96);
- }
- step(dt,input={}){
-  if(!Number.isFinite(dt)||dt<=0)return;dt=Math.min(dt,1/30);
-  if(this.mode==='paused'||this.mode==='map'||this.mode==='title'||this.mode==='gameover'||this.mode==='victory')return;
-  this.clock+=dt;const p=this.player;
-  if(this.mode==='dying'){
-   this.deathTimer-=dt;p.vy+=650*dt;p.y+=p.vy*dt;
-   if(this.deathTimer<=0){this.lives--;if(this.lives<=0){this.mode='gameover';this.emit('gameover');}else this.enterStage();}return;
-  }
-  if(this.mode==='clear'){
-   this.clearTimer-=dt;if(this.clearTimer<=0){if(this.stage===47){this.mode='victory';this.emit('save');}else{this.stage=Math.min(47,this.stage+1);this.mode='map';this.emit('map');this.emit('save');}}return;
-  }
-  this.time=Math.max(0,this.time-dt);if(this.time<60&&!this.hurry){this.hurry=true;this.emit('hurry');}if(this.time<=0){this.die();return;}
-  const move=clamp(Number(input.move)||0,-1,1),jumpPressed=!!input.jump&&!this.prev.jump,runPressed=!!input.run&&!this.prev.run;
-  for(const key of ['star','invuln','flight','tail','attackCooldown','pipeCooldown','jumpBuffer'])p[key]=Math.max(0,p[key]-dt);
-  if(jumpPressed)p.jumpBuffer=.1;
-  if(p.grounded)p.coyote=.08;else p.coyote=Math.max(0,p.coyote-dt);
-  const wantDuck=input.down&&p.grounded&&p.power!=='small';const wantedH=wantDuck||p.power==='small'?16:28;
-  if(wantedH!==p.h){const box={...p,y:p.y+p.h-wantedH,h:wantedH};if(wantedH<p.h||this.colliders(box).length===0){p.y=box.y;p.h=wantedH;p.duck=!!wantDuck;}}
-  const underwater=this.level.water&&p.y>38;
-  const maxSpeed=underwater?(input.run?118:86):(input.run?205:116),accel=this.level.theme==='ice'&&p.grounded?410:900;
-  if(move&&!p.duck){p.vx=clamp(p.vx+move*accel*dt,-maxSpeed,maxSpeed);p.facing=move>0?1:-1;}
-  else{const friction=this.level.theme==='ice'?120:(p.grounded?1000:300);p.vx=Math.sign(p.vx)*Math.max(0,Math.abs(p.vx)-friction*dt);}
-  if(p.grounded&&Math.abs(p.vx)>178&&input.run)p.pMeter=Math.min(1,p.pMeter+dt*.65);
-  else if(p.flight===0)p.pMeter=Math.max(0,p.pMeter-dt*.45);
-  if(underwater){if(jumpPressed){p.vy=-145;this.emit('jump');}p.vy=Math.min(95,p.vy+260*dt);}
-  else{
-   if(p.jumpBuffer>0&&p.coyote>0){p.vy=-(315+Math.abs(p.vx)*.2);p.grounded=false;p.coyote=0;p.jumpBuffer=0;
-    if(p.power==='raccoon'&&p.pMeter>.98){p.flight=3.5;this.emit('fly');}else this.emit('jump');}
-   else if(jumpPressed&&p.power==='raccoon'&&p.flight>0){p.vy=-210;this.emit('tail');}
-   const gravity=p.vy<0&&input.jump?680:1100;p.vy=Math.min(490,p.vy+gravity*dt);
-   if(p.power==='raccoon'&&input.jump&&p.vy>65)p.vy=65;
-  }
-  if(runPressed&&!p.carry)this.attack();if(p.carry&&!input.run)this.releaseShell();
-  if(input.down&&!this.prev.down&&this.enterPipe()){this.prev={...input};return;}
-  for(const platform of this.level.platforms){platform.oldY=platform.y;const oldX=platform.x;const wave=Math.sin(this.clock*platform.rate+platform.phase)*platform.amp;
-   platform.x=platform.baseX+(platform.axis==='x'?wave:0);platform.y=platform.baseY+(platform.axis==='y'?wave:0);platform.dx=platform.x-oldX;}
-  this.moveBody(p,dt,{player:true});p.x=clamp(p.x,0,this.level.width-p.w);p.y=Math.max(-32,p.y);
-  if(p.y>PLAY+30){this.die();return;}
-  const bottomRow=Math.floor((p.y+p.h-2)/16),leftCol=Math.floor(p.x/16),rightCol=Math.floor((p.x+p.w)/16);
-  for(let x=leftCol;x<=rightCol;x++)if([13,14].includes(this.tile(x,bottomRow))){this.damage();break;}
-  for(const coin of this.level.coins)if(!coin.taken&&overlap(p,coin)){coin.taken=true;this.addCoin(coin.x,coin.y);}
-  for(const item of this.level.items){
-   item.life+=dt;if(item.type==='leaf'){item.vy=Math.min(42,item.vy+100*dt);item.vx=Math.sin(item.life*4)*32;}else item.vy=Math.min(350,item.vy+700*dt);
-   this.moveBody(item,dt);if(item.type==='star'&&item.grounded)item.vy=-180;
-   if(!item.dead&&overlap(p,item))this.collectItem(item);
-  }
-  this.level.items=this.level.items.filter(a=>!a.dead&&a.y<PLAY+32);
-  this.updateEnemies(dt,input);if(this.mode!=='playing')return;this.updateBoss(dt);this.updateProjectiles(dt);
-  if(this.level.goal&&overlap(p,this.level.goal))this.clearStage();
-  for(const data of Object.values(this.level.blocks))data.bump=Math.max(0,data.bump-dt);
-  for(const a of this.particles){a.life-=dt;a.x+=(a.vx||0)*dt;a.y+=(a.vy||0)*dt;if(a.kind==='debris')a.vy+=450*dt;}
-  this.particles=this.particles.filter(a=>a.life>0);
-  this.camera=clamp(p.x-W*.38,0,this.level.width-W);this.prev={...input};
- }
-}
-globalThis.MarioCore={MarioGame,createLevel,WORLDS,BLOCK,TILE,W,H,PLAY,clamp,noise,overlap,solid};
+
+  globalThis.MarioCore = Object.freeze({
+    MarioGame, createLevel, createBonusRoom, WORLDS, T, TILE, ROWS, FLOOR, W, H, PLAY, PHYS, CHAIN, CARDS, ITEMS,
+    MAP_NODES, TOAD_ITEMS, stageName, clamp, overlap, isSolid, isOneWay
+  });
 })();

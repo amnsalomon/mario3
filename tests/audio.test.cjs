@@ -51,7 +51,7 @@ test('seven distinct looping compositions and all event effects contain valid mu
   signatures.add(t.lead.join(','));
  }
  assert.equal(signatures.size,names.length);
- const events=['jump','coin','bump','break','stomp','kick','powerup','powerdown','oneup','fire','tail','fly','pipe','death','clear','worldClear','victory','pause','select','hurry'];
+ const events=['jump','coin','bump','break','stomp','kick','powerup','powerdown','oneup','fire','tail','fly','pipe','death','clear','worldClear','victory','pause','select','hurry','swim','sprout','cannon','flame','orb','tick','gameover'];
  assert.equal(Object.keys(Audio.effects).length,events.length);
  for(const name of events){
   assert.ok(Audio.effects[name].length>0,name);
@@ -86,7 +86,7 @@ test('music mute preserves effects, global mute silences everything, and volume 
  audio.setEnabled(true);assert.equal(audio.master.gain.value,.6);assert.equal(audio.effect('fire'),true);
 });
 test('death and clear fanfares suspend music and survive a subsequent theme change',async()=>{
- for(const effect of ['death','clear','worldClear','victory']){
+ for(const effect of ['death','clear','worldClear','victory','gameover']){
   const {Audio,contexts}=setup(),audio=new Audio();await audio.unlock();audio.update();audio.effect(effect);
   const stinger=[...audio.voices];assert.equal(stinger.length,Audio.effects[effect].length);assert.ok(stinger.every(v=>!v.music));
   audio.setTheme('castle');audio.update();assert.equal(audio.voices.size,stinger.length);assert.ok(stinger.every(v=>!v.source.disconnected));
@@ -105,4 +105,12 @@ test('theme replacement cancels only music and disposal releases the audio graph
  audio.setTheme('water');assert.ok(music.every(v=>v.source.disconnected));assert.ok(effects.every(v=>!v.source.disconnected));
  audio.setTheme('unknown');assert.equal(audio.themeName,'overworld');audio.dispose();assert.equal(audio.voices.size,0);assert.equal(contexts[0].state,'closed');
  assert.equal(await audio.unlock(),false);assert.equal(audio.effect('coin'),false);audio.update();assert.equal(audio.voices.size,0);
+});
+
+test('hurry speeds up the synthesized music and tempo is clamped',async()=>{
+ const {Audio,contexts}=setup(),audio=new Audio();await audio.unlock();
+ audio.update();const fast=new (setup().Audio)();await fast.unlock();fast.setTempo(1.3);fast.update();
+ const step=a=>a.nextTime-.025;
+ assert.ok(Math.abs(step(audio)/step(fast)-1.3)<.01,'each step is 1.3x shorter');
+ fast.setTempo(10);assert.equal(fast.tempo,2);fast.setTempo(-1);assert.equal(fast.tempo,2);fast.setTempo(1);assert.equal(fast.tempo,1);
 });

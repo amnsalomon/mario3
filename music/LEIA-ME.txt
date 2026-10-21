@@ -1,0 +1,33 @@
+PASTA DE MÚSICAS DO JOGO
+========================
+
+O arquivo map.mp3 toca no mapa e na tela inicial.
+
+Para trocar a faixa, substitua map.mp3 por outro arquivo com o mesmo nome.
+
+Para usar faixas em outros momentos, coloque os arquivos aqui e liste-os em
+js/music-config.js. Os momentos disponíveis são:
+
+  map         mapa e tela inicial
+  overworld   fases a céu aberto
+  underground fases subterrâneas
+  water       fases debaixo d'água
+  castle      fortalezas, Terra Sombria e castelo final
+  airship     naves e tanques
+  star        enquanto o Mario está com a estrela
+
+Exemplo em js/music-config.js:
+
+  globalThis.MARIO_MUSIC_FILES = {
+    map: 'music/map.mp3',
+    overworld: 'music/fases.mp3'
+  };
+
+Se um arquivo faltar ou não abrir, aquele momento volta automaticamente para a
+trilha sintetizada própria do jogo.
+
+Para tirar a música em arquivo, apague map.mp3 e a linha "map" do
+music-config.js.
+
+DIREITOS: só publique aqui gravações que você tem autorização para distribuir.
+Gravações originais da Nintendo são protegidas por direitos autorais.

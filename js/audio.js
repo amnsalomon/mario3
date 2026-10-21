@@ -79,10 +79,17 @@
     victory:sequence(['C5','G5','E5','C6','B5','G5','A5','C6','E6','D6','B5','G5','C6','E6','G6','C6'],.17,'square',.075),
     pause:[tone(0,.06,523,523,'square',.045),tone(.075,.06,659,659,'square',.045)],
     select:[tone(0,.05,880,1047,'square',.05)],
-    hurry:sequence(['G5','C6','G5','C6','A5','D6'],.075,'square',.06)
+    hurry:sequence(['G5','C6','G5','C6','A5','D6'],.075,'square',.06),
+    swim:[tone(0,.09,300,520,'triangle',.06)],
+    sprout:[tone(0,.18,220,660,'square',.045),tone(.05,.15,330,880,'triangle',.04)],
+    cannon:[tone(0,.14,1,1,'noise',.09),tone(0,.12,120,45,'square',.07)],
+    flame:[tone(0,.22,1,1,'noise',.05),tone(0,.2,200,90,'triangle',.06)],
+    orb:sequence(['E6','C6','G6'],.07,'triangle',.07),
+    tick:[tone(0,.03,1760,1760,'square',.025)],
+    gameover:sequence(['C5','G4','E4','A4','B4','A4','Ab4','Bb4','Ab4','G4','F4','G4'],.16,'square',.07)
   };
-  const STINGERS=new Set(['death','clear','worldClear','victory']);
-  const RATE_LIMIT={jump:.045,coin:.04,stomp:.04,kick:.05,fire:.07,tail:.09,fly:.12,bump:.07};
+  const STINGERS=new Set(['death','clear','worldClear','victory','gameover']);
+  const RATE_LIMIT={jump:.045,coin:.04,stomp:.04,kick:.05,fire:.07,tail:.09,fly:.12,bump:.07,tick:.05,swim:.06,cannon:.2};
   for(const t of Object.values(THEMES)){Object.freeze(t.lead);t.chords.forEach(Object.freeze);Object.freeze(t.chords);Object.freeze(t);}
   for(const steps of Object.values(EFFECTS)){steps.forEach(Object.freeze);Object.freeze(steps);}
   Object.freeze(THEMES);Object.freeze(EFFECTS);
@@ -92,7 +99,11 @@
       this.enabled=true;this.musicEnabled=true;this.volume=.55;this.paused=false;
       this.context=null;this.master=null;this.noiseBuffer=null;this.voices=new Set();
       this.themeName='overworld';this.nextStep=0;this.nextTime=0;this.duckUntil=0;
-      this.lastEffect=new Map();this.disposed=false;this.unlocked=false;
+      this.lastEffect=new Map();this.disposed=false;this.unlocked=false;this.tempo=1;
+    }
+    setTempo(tempo){
+      const n=Number(tempo);if(!Number.isFinite(n)||n<=0)return;
+      this.tempo=clamp(n,.5,2);
     }
     async unlock(){
       if(this.disposed||!this.enabled)return false;
@@ -190,7 +201,7 @@
       return true;
     }
     _scheduleStep(index,time){
-      const t=THEMES[this.themeName],duration=60/t.bpm*t.stepBeats;
+      const t=THEMES[this.themeName],duration=60/t.bpm*t.stepBeats/this.tempo;
       const local=index%t.lead.length,chord=t.chords[Math.floor(local/8)%t.chords.length],beat=local%8,lead=t.lead[local];
       if(lead!==null)this._sound(time,duration*(t.bassStyle==='flow'?.94:.73),hz(lead),hz(lead),t.leadType,t.leadType==='triangle'?.11:.043,true);
       // Quiet square arpeggios and a triangle bass recreate a four-channel texture.
@@ -212,7 +223,7 @@
       for(const v of [...this.voices])if(v.end<now-.05)this._release(v);
       if(!this.musicEnabled||now<this.duckUntil)return;
       if(this.nextTime<now-.2)this.nextTime=now+.02;
-      const seconds=60/THEMES[this.themeName].bpm*THEMES[this.themeName].stepBeats;
+      const seconds=60/THEMES[this.themeName].bpm*THEMES[this.themeName].stepBeats/this.tempo;
       let guard=0;
       while(this.nextTime<now+.12&&guard++<12){this._scheduleStep(this.nextStep++,this.nextTime);this.nextTime+=seconds;}
     }
