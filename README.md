@@ -17,8 +17,11 @@ Recriação independente inspirada em Super Mario Bros. 3, feita com Canvas 2D e
   - Casa do Toad com 3 baús e inventário de até 28 itens;
   - morrer volta ao mapa;
   - game over recomeça o mundo, mantendo as fortalezas destruídas.
+- **Dificuldade progressiva como no SMB3**: o Mundo 1 é de aprendizado e cada mundo aperta um pouco mais — mais inimigos e mais rápidos, buracos maiores, tartarugas que patrulham plataformas sem cair, plantas que cospem fogo, peixes que saltam dos buracos, plataformas frágeis que despencam, barras de fogo giratórias, bolas de lava, esmagadores com espinhos, maçaricos nas naves e canhões mais rápidos. Menos itens de poder nos mundos finais.
+- **Segredos e profundidade**: céu de moedas acima da tela (a câmera sobe quando o Mario voa ou escala), pé de feijão que nasce de tijolos, nuvem alta só para quem voa (com trilha de moedas como pista), Botão P que transforma tijolos em moedas por 10 segundos, tijolos de várias moedas, vidas em blocos invisíveis e canos secretos. O fim de cada fase mostra quantos segredos foram achados.
 - **Chefes**: o das fortalezas, naves e tanques cai com 3 pisões e solta uma esfera que encerra a fase. No castelo final, o Bowser quebra o chão de tijolos ao cair com força.
 - Canos secretos com sala bônus, blocos invisíveis, cascos carregáveis, canhões que atiram (e podem ser pisados), plantas que saem dos canos.
+- **Animação e sensação de voo**: o Mario estica no pulo, achata na aterrissagem, inclina na corrida e no voo; voando deixa rastro de imagens, linhas de vento e sopros a cada batida da cauda. Inimigos balançam ao andar, cascos giram, plantas oscilam e peixes inclinam no salto. Os desenhos dos personagens continuam os mesmos.
 - **Gráficos HD em tela larga (16:9)**: céus em degradê, cenários em camadas com paralaxe, blocos, canos, moedas, chão, lava, água, gelo e efeitos desenhados em vetor. A resolução acompanha a tela (até 3584×2048 em telas de alta densidade) e os desenhos ficam em cache, então o jogo continua leve. Mario, inimigos e itens mantêm a pixel art do projeto, só que mais nítida.
 - **Códigos secretos** digitados num campo escondido (Ç ou ; no teclado; segurar START no celular): pular fase ou mundo, ganhar itens e vidas, voar sempre, tiros especiais e invencibilidade. Os códigos valem só na sessão atual.
 - **Celular**: na vertical aparece um aviso para girar o aparelho; na horizontal, o jogo ocupa o centro e os botões ficam nas laterais. Tela cheia no primeiro toque, deslizar o dedo entre botões, respeito ao entalhe da tela e instalação como app pela tela inicial (manifesto PWA e ícones).
@@ -33,7 +36,8 @@ As fases, os cenários e as trilhas sintetizadas foram produzidos para este proj
 | Andar / andar no mapa | Setas ou A e D | Direcional |
 | Pular / nadar / entrar na fase | Z, espaço ou K | A |
 | Correr / fogo / cauda / carregar casco / abrir itens no mapa | X, Shift ou J | B ou X |
-| Abaixar / entrar em cano | ↓ ou S | Baixo |
+| Abaixar / entrar em cano / descer do pé de feijão | ↓ ou S | Baixo |
+| Agarrar e subir no pé de feijão | ↑ ou W | Cima (▲ no celular) |
 | Entrar na fase / pausar na fase | Enter | Start |
 | Pausar | P ou Esc | Start |
 | Som | M | — |
@@ -66,7 +70,7 @@ Com Node.js instalado:
 node --test tests/*.test.cjs
 ```
 
-São 54 testes. Eles cobrem:
+São 66 testes. Eles cobrem:
 
 - geração e validação das 48 fases;
 - velocidades, pulo e medidor P;
@@ -74,19 +78,20 @@ São 54 testes. Eles cobrem:
 - mapa, save e game over;
 - sala bônus, canos de atalho, areia movediça, água, rolagem automática e chefes;
 - códigos secretos;
+- curva de dificuldade, céu de moedas, pé de feijão, Botão P, tijolo de várias moedas, vida escondida e os novos perigos;
 - áudio, música em arquivo e renderização;
 - toda a arte HD desenhada num canvas de teste rigoroso, em várias resoluções.
 
-O teste `playability` usa um robô de busca com a física real do jogo para provar que as 48 fases podem ser completadas (leva cerca de 30 segundos). Para rodá-lo sozinho e ver o resultado de cada fase: `node tests/bot.cjs`.
+O teste `playability` usa um robô de busca com a física real do jogo para provar que o desenho das 48 fases pode ser completado (leva cerca de 1 minuto; sozinho: `node tests/bot.cjs`). O teste `fairplay` usa um segundo robô, mais exigente, que joga sem estrela e sem invencibilidade, com todos os inimigos e perigos ligados, para mostrar que a dificuldade continua justa. Ele roda em quatro fases no conjunto de testes; para conferir as 48 (leva alguns minutos): `node tests/fairbot.cjs`.
 
 ## Estrutura
 
 | Arquivo | Papel |
 | --- | --- |
-| `js/levels.js` | Gerador determinístico das fases e da sala bônus |
+| `js/levels.js` | Gerador determinístico das fases, da curva de dificuldade, dos segredos e da sala bônus |
 | `js/engine.js` | Física, regras, mapa, Casa do Toad, chefes e save |
 | `js/sprites.js` | Desenhos em pixel art feitos por código, com cache de imagens |
-| `js/hd.js` | Arte HD em vetor: chão, blocos, canos, moedas, efeitos, elementos do mapa |
+| `js/hd.js` | Arte HD em vetor: chão, blocos, canos, moedas, perigos, pé de feijão, Botão P, efeitos, elementos do mapa |
 | `js/scenery.js` | Céus e cenários HD em camadas com paralaxe |
 | `js/renderer.js` | Desenho da fase, do mapa, da Casa do Toad e do HUD |
 | `js/audio.js` | Trilhas e efeitos sintetizados |

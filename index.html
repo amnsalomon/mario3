@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>Mario 3 · Uma aventura em 8 mundos</title>
   <link rel="icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
   <main>
@@ -67,6 +67,7 @@
 
     <div class="touch">
       <div>
+        <button data-key="up" aria-label="Subir">▲</button>
         <button data-key="left" aria-label="Esquerda">◀</button>
         <button data-key="down" aria-label="Abaixar">▼</button>
         <button data-key="right" aria-label="Direita">▶</button>
@@ -106,26 +107,28 @@
     <p><b>Casa do Toad:</b> fica no caminho de cada mundo. Escolha um dos três baús; o item vai para o inventário (até 28 itens).</p>
     <p><b>Movimento:</b> setas ou A/D. Z ou espaço pula, e segurar deixa o pulo mais alto. Segure X ou Shift para correr: correndo no chão, o medidor P enche e libera a velocidade máxima.</p>
     <p><b>Poderes:</b> com a Folha, pule com o P cheio e aperte Z repetidamente para voar por uns 4 segundos; na queda, toque Z várias vezes para planar. X dá o golpe de cauda. Com a Flor, X lança até duas bolas de fogo. Ao levar dano, Fogo e Guaxinim voltam a Super Mario; Super Mario volta a pequeno.</p>
+    <p><b>Segredos:</b> cada fase ao ar livre esconde algo. Alguns tijolos soltam um pé de feijão: segure ↑ (ou aperte pulo no ar) para agarrar, e o Mario sobe sozinho até as nuvens cheias de moedas acima da tela; ↓ desce e ←/→ solta. Voando com a Folha dá para chegar a uma nuvem ainda mais alta (siga a trilha de moedas subindo). O Botão P transforma os tijolos em moedas por 10 segundos. Há vidas em blocos invisíveis, tijolos que dão várias moedas e canos secretos. No fim da fase aparece quantos segredos você achou.</p>
+    <p><b>Perigos:</b> a dificuldade cresce a cada mundo, como no original: mais inimigos, buracos maiores, tartarugas que dão meia-volta na beirada, plantas que cospem fogo, peixes que saltam dos buracos, plataformas frágeis que despencam, barras de fogo giratórias, bolas de lava, esmagadores com espinhos e maçaricos nas naves.</p>
     <p><b>Cascos:</b> segure X ao tocar um casco parado para carregá-lo; solte X para chutar. Pisões seguidos sem tocar o chão valem 100, 200, 400… até 8000 e depois vidas.</p>
     <p><b>Fim de fase:</b> toque a caixa de cartas. Três cartas dão uma vida; três iguais dão 2 (cogumelo), 3 (flor) ou 5 (estrela). Nas fortalezas, naves e tanques, pise três vezes no chefe e pegue a esfera. No castelo final, o Bowser quebra o chão quando cai com força.</p>
     <p><b>Game over:</b> você recomeça no início do mundo com 4 vidas; as fases e a Casa do Toad do mundo reabrem, mas fortalezas destruídas continuam destruídas. Pontos e cartas voltam a zero.</p>
-    <p><b>Celular:</b> gire o aparelho para a horizontal. O direcional fica à esquerda, A (pular) e B (correr/atirar) à direita; dá para deslizar o dedo de um botão a outro. No primeiro toque o jogo tenta abrir em tela cheia. Pelo menu do navegador, "Adicionar à tela inicial" instala o jogo como app.</p>
+    <p><b>Celular:</b> gire o aparelho para a horizontal. O direcional (com ▲ para subir no pé de feijão) fica à esquerda, A (pular) e B (correr/atirar) à direita; dá para deslizar o dedo de um botão a outro. No primeiro toque o jogo tenta abrir em tela cheia. Pelo menu do navegador, "Adicionar à tela inicial" instala o jogo como app.</p>
     <p><b>Segredo:</b> existe um campo para códigos secretos. No teclado ele abre com Ç (ou ;); no celular, segure START por um segundo.</p>
     <p>P ou Esc pausa · M liga/desliga o som · F tela cheia. Controle USB/Bluetooth: direcional, A pula, B ou X corre, Start entra/pausa. O progresso é salvo neste navegador.</p>
     <p>Cenários, blocos e efeitos são desenhados por código em alta resolução, ajustada à sua tela. As músicas das fases e os efeitos sonoros são sintetizados em estilo 8-bit e compostos para este projeto. A faixa do mapa vem do arquivo da pasta music/.</p>
     <button id="closeHelp" class="primary">Vamos jogar</button>
   </dialog>
 
-  <script src="js/levels.js?v=4"></script>
-  <script src="js/engine.js?v=4"></script>
-  <script src="js/sprites.js?v=4"></script>
-  <script src="js/hd.js?v=4"></script>
-  <script src="js/audio.js?v=4"></script>
-  <script src="js/scenery.js?v=4"></script>
-  <script src="js/renderer.js?v=4"></script>
-  <script src="js/local-music.js?v=4"></script>
-  <script src="js/music-config.js?v=4"></script>
-  <script src="js/tracks.js?v=4"></script>
-  <script src="js/app.js?v=4"></script>
+  <script src="js/levels.js?v=5"></script>
+  <script src="js/engine.js?v=5"></script>
+  <script src="js/sprites.js?v=5"></script>
+  <script src="js/hd.js?v=5"></script>
+  <script src="js/audio.js?v=5"></script>
+  <script src="js/scenery.js?v=5"></script>
+  <script src="js/renderer.js?v=5"></script>
+  <script src="js/local-music.js?v=5"></script>
+  <script src="js/music-config.js?v=5"></script>
+  <script src="js/tracks.js?v=5"></script>
+  <script src="js/app.js?v=5"></script>
 </body>
 </html>

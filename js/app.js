@@ -412,6 +412,7 @@
     let dirty = false;
     for (const e of game.takeEvents()) {
       if (Object.hasOwn(MarioAudio.effects, e.type)) audio.effect(e.type);
+      if (e.type === 'secret') toast(`Segredo encontrado: ${e.name}`);
       if (PERSIST_ON.has(e.type)) dirty = true;
     }
     if (dirty) persist();

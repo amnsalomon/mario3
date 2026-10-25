@@ -178,9 +178,10 @@ dialog h2 { margin-top: 0; }
     margin: 0; z-index: 3; pointer-events: none; align-items: flex-end;
   }
   .touch > div { pointer-events: auto; display: grid; gap: 6px; }
-  .touch > div:first-child { grid-template-columns: 52px 52px; grid-template-areas: "l r" "d d"; }
+  .touch > div:first-child { grid-template-columns: 52px 52px; grid-template-areas: "u u" "l r" "d d"; }
   .touch > div:last-child { grid-template-columns: 52px 52px; grid-template-areas: "s s" "b a"; }
   .touch [data-key=left] { grid-area: l; } .touch [data-key=right] { grid-area: r; } .touch [data-key=down] { grid-area: d; width: auto; height: 40px; }
+  .touch [data-key=up] { grid-area: u; width: auto; height: 36px; border-radius: 14px; }
   .touch [data-key=start] { grid-area: s; width: auto; } .touch [data-key=run] { grid-area: b; } .touch [data-key=jump] { grid-area: a; }
   .touch button {
     width: 52px; height: 52px; font-size: 18px; padding: 0; border-radius: 50%;

@@ -580,7 +580,204 @@
     g.fill();
   }
 
+  /* ---------------------- Segredos e perigos novos ---------------------- */
+  // Pé de feijão: caule com folhas, 16×16 por segmento.
+  function vine(g, variant) {
+    g.strokeStyle = '#1f6b2a';
+    g.lineWidth = 3.2;
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(8, 16);
+    g.bezierCurveTo(variant ? 11 : 5, 11, variant ? 5 : 11, 5, 8, 0);
+    g.stroke();
+    g.strokeStyle = '#4cbf4a';
+    g.lineWidth = 1.6;
+    g.stroke();
+    const side = variant ? 1 : -1;
+    g.fillStyle = lin(g, 0, 4, 0, 12, [[0, '#8ff070'], [1, '#2f9a3a']]);
+    g.beginPath();
+    g.moveTo(8, 9);
+    g.bezierCurveTo(8 + side * 3, 4, 8 + side * 8, 5, 8 + side * 7.5, 9);
+    g.bezierCurveTo(8 + side * 6, 11.5, 8 + side * 2, 11.5, 8, 9);
+    g.fill();
+    g.strokeStyle = 'rgba(20,70,25,0.7)';
+    g.lineWidth = 0.5;
+    g.beginPath();
+    g.moveTo(8, 9);
+    g.lineTo(8 + side * 6.5, 8.6);
+    g.stroke();
+  }
+  function vineTop(g) {
+    vine(g, 0);
+    g.fillStyle = rad(g, 8, 3, 0, 5, [[0, '#d8ff9a'], [1, '#3faa3c']]);
+    circle(g, 8, 3, 3.2);
+    g.fill();
+    g.strokeStyle = '#1f6b2a';
+    g.lineWidth = 0.7;
+    g.beginPath();
+    g.arc(8, 3, 1.6, 0, Math.PI * 1.4);
+    g.stroke();
+  }
+  // Botão P: base metálica e cúpula ciano com a letra P. 16×16.
+  function pswitch(g, pressed) {
+    const top = pressed ? 11 : 4;
+    g.fillStyle = 'rgba(10,20,30,0.25)';
+    ellipse(g, 8, 15.4, 7.5, 0.9);
+    g.fill();
+    g.fillStyle = lin(g, 0, 12, 0, 16, [[0, '#dfe6ee'], [1, '#77818f']]);
+    rr(g, 0.6, 12.2, 14.8, 3.6, 1.2);
+    g.fill();
+    g.strokeStyle = '#3c4552';
+    g.lineWidth = 0.5;
+    g.stroke();
+    g.fillStyle = lin(g, 0, top, 0, 13, [[0, '#9ef3ff'], [0.45, '#25b4dc'], [1, '#0b5e86']]);
+    g.beginPath();
+    g.moveTo(2, 12.6);
+    g.bezierCurveTo(2, top - 1, 14, top - 1, 14, 12.6);
+    g.closePath();
+    g.fill();
+    g.strokeStyle = '#073b56';
+    g.lineWidth = 0.6;
+    g.stroke();
+    if (!pressed) {
+      g.fillStyle = 'rgba(255,255,255,0.65)';
+      ellipse(g, 5.6, 6.6, 1.8, 1);
+      g.fill();
+      g.fillStyle = '#ffffff';
+      g.font = '900 6.5px ui-monospace, Menlo, monospace';
+      g.textBaseline = 'top';
+      g.fillText('P', 6, 6.2);
+    }
+  }
+  // Bola de lava saltitante (sem rosto). 14×16.
+  function lavaBubble(g) {
+    g.fillStyle = rad(g, 7, 9, 0, 9, [[0, 'rgba(255,170,60,0.55)'], [1, 'rgba(255,90,20,0)']]);
+    circle(g, 7, 9, 8);
+    g.fill();
+    g.fillStyle = lin(g, 0, 0, 0, 16, [[0, '#fff3b0'], [0.4, '#ffb63a'], [1, '#d93d14']]);
+    g.beginPath();
+    g.moveTo(7, 0.5);
+    g.bezierCurveTo(10, 4, 12.6, 6.5, 12.6, 10);
+    g.bezierCurveTo(12.6, 13.6, 10, 15.4, 7, 15.4);
+    g.bezierCurveTo(4, 15.4, 1.4, 13.6, 1.4, 10);
+    g.bezierCurveTo(1.4, 6.5, 4, 4, 7, 0.5);
+    g.fill();
+    g.fillStyle = 'rgba(255,255,230,0.85)';
+    ellipse(g, 5.2, 9, 1.8, 2.6);
+    g.fill();
+  }
+  // Esmagador: bloco de aço rebitado com faixas de alerta e espinhos embaixo. 32×32.
+  function crusher(g) {
+    g.fillStyle = lin(g, 0, 0, 32, 32, [[0, '#c9d1dc'], [0.5, '#8f99a8'], [1, '#5d6676']]);
+    rr(g, 1, 0.5, 30, 26, 3);
+    g.fill();
+    g.strokeStyle = '#2b313b';
+    g.lineWidth = 0.9;
+    g.stroke();
+    g.save();
+    rr(g, 3, 9, 26, 7, 1);
+    g.clip();
+    for (let x = -8; x < 34; x += 6) {
+      g.fillStyle = '#f2c230';
+      poly(g, [[x, 16], [x + 3, 16], [x + 10, 9], [x + 7, 9]]);
+      g.fill();
+    }
+    g.restore();
+    g.fillStyle = 'rgba(25,28,34,0.85)';
+    g.fillRect(3, 9, 26, 0.6);
+    g.fillRect(3, 15.4, 26, 0.6);
+    for (const [x, y] of [[5, 4.5], [27, 4.5], [5, 21], [27, 21], [16, 4.5], [16, 21]]) bolt(g, x, y, 1.2);
+    g.fillStyle = 'rgba(255,255,255,0.35)';
+    g.fillRect(3, 2, 26, 0.8);
+    for (let i = 0; i < 5; i++) {
+      const x = 2 + i * 6;
+      g.fillStyle = lin(g, x, 26, x + 6, 26, [[0, '#eef2f6'], [1, '#7e8796']]);
+      poly(g, [[x, 26], [x + 6, 26], [x + 3, 32]]);
+      g.fill();
+      g.strokeStyle = '#2b313b';
+      g.lineWidth = 0.4;
+      g.stroke();
+    }
+  }
+  // Bocal do maçarico (16×16) e a chama (12×48, quadros 0..3).
+  function burner(g) {
+    g.fillStyle = lin(g, 0, 0, 16, 0, [[0, '#6a4a22'], [0.5, '#d6a04c'], [1, '#6a4a22']]);
+    rr(g, 0.5, 2, 15, 14, 2);
+    g.fill();
+    g.strokeStyle = '#2e1e0b';
+    g.lineWidth = 0.7;
+    g.stroke();
+    g.fillStyle = lin(g, 0, 0, 16, 0, [[0, '#4c3418'], [0.5, '#f0c070'], [1, '#4c3418']]);
+    rr(g, 2.5, 0, 11, 4, 1.5);
+    g.fill();
+    g.fillStyle = '#140c05';
+    ellipse(g, 8, 1.6, 3.4, 1.2);
+    g.fill();
+    bolt(g, 3.5, 9, 0.9);
+    bolt(g, 12.5, 9, 0.9);
+  }
+  function burnFlame(g, frame) {
+    const wob = [0, 1, -1, 0.5][frame % 4];
+    g.fillStyle = lin(g, 0, 48, 0, 0, [[0, 'rgba(255,255,255,0.95)'], [0.18, 'rgba(150,220,255,0.95)'], [0.4, 'rgba(255,220,110,0.95)'], [0.8, 'rgba(255,110,30,0.8)'], [1, 'rgba(220,40,10,0)']]);
+    g.beginPath();
+    g.moveTo(3, 48);
+    g.bezierCurveTo(0, 30, 4 + wob, 14, 6 + wob, 0);
+    g.bezierCurveTo(8 + wob, 14, 12, 30, 9, 48);
+    g.closePath();
+    g.fill();
+    g.fillStyle = 'rgba(255,255,240,0.8)';
+    ellipse(g, 6, 40, 1.6, 7);
+    g.fill();
+  }
+  // Plataforma frágil de pedra rachada. 32×8.
+  function fragile(g) {
+    g.fillStyle = lin(g, 0, 0, 0, 8, [[0, '#f3dcae'], [1, '#b58a4f']]);
+    rr(g, 0.4, 0.4, 31.2, 7.2, 1.6);
+    g.fill();
+    g.strokeStyle = '#5b3c18';
+    g.lineWidth = 0.6;
+    g.stroke();
+    g.strokeStyle = 'rgba(80,50,20,0.75)';
+    g.lineWidth = 0.5;
+    g.beginPath();
+    g.moveTo(9, 0.6); g.lineTo(11, 3.5); g.lineTo(9.5, 7.4);
+    g.moveTo(21, 0.6); g.lineTo(19.5, 4); g.lineTo(22, 7.4);
+    g.moveTo(11, 3.5); g.lineTo(14, 4.2);
+    g.stroke();
+    g.fillStyle = 'rgba(255,250,230,0.6)';
+    g.fillRect(1.5, 1.1, 29, 0.6);
+  }
+  // Efeitos de movimento.
+  function streak(g) {
+    g.fillStyle = lin(g, 0, 0, 16, 0, [[0, 'rgba(255,255,255,0)'], [0.7, 'rgba(255,255,255,0.75)'], [1, 'rgba(255,255,255,0.95)']]);
+    rr(g, 0, 0.4, 16, 1.2, 0.6);
+    g.fill();
+  }
+  function gust(g) {
+    g.strokeStyle = 'rgba(255,255,255,0.85)';
+    g.lineWidth = 1.1;
+    g.beginPath();
+    g.ellipse(8, 3, 7, 2.4, 0, 0.15, Math.PI - 0.15);
+    g.stroke();
+    g.strokeStyle = 'rgba(200,230,255,0.6)';
+    g.lineWidth = 0.7;
+    g.beginPath();
+    g.ellipse(8, 3.6, 4.5, 1.5, 0, 0.2, Math.PI - 0.2);
+    g.stroke();
+  }
+  function swoosh(g) {
+    g.lineCap = 'round';
+    for (const [r, a, w] of [[17, 0.85, 1.6], [13, 0.5, 1]]) {
+      g.strokeStyle = `rgba(255,255,255,${a})`;
+      g.lineWidth = w;
+      g.beginPath();
+      g.ellipse(20, 8, r, r * 0.32, 0, 0.1, Math.PI - 0.1);
+      g.stroke();
+    }
+  }
+
   globalThis.MarioHD = Object.freeze({
+    vine, vineTop, pswitch, lavaBubble, crusher, burner, burnFlame, fragile, streak, gust, swoosh,
     TAU, hash, lin, rad, rr, circle, ellipse, poly, bolt,
     ground, brick, stone, wood, ice, sand, cloud, platform, lava, spike, cannon, cannonBase, pipe, lift,
     coin, chest, orb, glow, fireball, flame, puff, dust, sparkle, shadow, debris, semiBox,

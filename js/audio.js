@@ -87,10 +87,14 @@
     orb:sequence(['E6','C6','G6'],.07,'triangle',.07),
     tick:[tone(0,.03,1760,1760,'square',.025)],
     gameover:sequence(['C5','G4','E4','A4','B4','A4','Ab4','Bb4','Ab4','G4','F4','G4'],.16,'square',.07),
-    cheat:sequence(['C6','E6','G6','B6','D7'],.06,'triangle',.07)
+    cheat:sequence(['C6','E6','G6','B6','D7'],.06,'triangle',.07),
+    vine:sequence(['C4','G4','C5','E5','G5','C6'],.07,'triangle',.06),
+    pswitch:[tone(0,.12,90,40,'square',.09),tone(.02,.1,1,1,'noise',.05),tone(.12,.18,440,880,'triangle',.05)],
+    secret:sequence(['G5','B5','D6','G6','D6','G6'],.075,'square',.06),
+    crush:[tone(0,.2,1,1,'noise',.1),tone(0,.18,90,35,'square',.08)]
   };
   const STINGERS=new Set(['death','clear','worldClear','victory','gameover']);
-  const RATE_LIMIT={jump:.045,coin:.04,stomp:.04,kick:.05,fire:.07,tail:.09,fly:.12,bump:.07,tick:.05,swim:.06,cannon:.2};
+  const RATE_LIMIT={crush:.15,jump:.045,coin:.04,stomp:.04,kick:.05,fire:.07,tail:.09,fly:.12,bump:.07,tick:.05,swim:.06,cannon:.2};
   for(const t of Object.values(THEMES)){Object.freeze(t.lead);t.chords.forEach(Object.freeze);Object.freeze(t.chords);Object.freeze(t);}
   for(const steps of Object.values(EFFECTS)){steps.forEach(Object.freeze);Object.freeze(steps);}
   Object.freeze(THEMES);Object.freeze(EFFECTS);

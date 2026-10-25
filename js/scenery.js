@@ -28,14 +28,14 @@
     // Céu pré-renderizado: copiar uma imagem é bem mais barato que um gradiente de tela inteira.
     sky(stops, water = null) {
       const key = 'sky-' + stops.map(s => s[1]).join() + (water ? '-w' + water.top : '');
-      this.r.blit(key, W, PH, 0, 0, g => {
+      this.fixed(() => this.r.blit(key, W, PH, 0, 0, g => {
         g.fillStyle = lin(g, 0, 0, 0, PH, stops);
         g.fillRect(0, 0, W, PH);
         if (water) {
           g.fillStyle = lin(g, 0, water.top, 0, PH, water.stops);
           g.fillRect(0, water.top, W, PH - water.top);
         }
-      }, W, PH, true);
+      }, W, PH, true));
     }
     sun(x, y, r, color = 'rgba(255,248,214,0.9)') {
       this.r.blit('sun' + r + color, r * 4, r * 4, x - r * 2, y - r * 2, g => {
@@ -79,7 +79,35 @@
       }
     }
 
-    draw(l, cam, t) {
+    // camY < 0 quando a câmera sobe para o céu: o fundo desce mais devagar (parallax vertical).
+    draw(l, cam, t, camY = 0) {
+      const c = this.r.c, s = this.r.scale || 1;
+      this.vy = camY < 0 && typeof c.save === 'function' ? Math.round(-camY * 0.45 * s) / s : 0;
+      if (this.vy) { c.save(); c.translate(0, this.vy); }
+      this.theme(l, cam, t);
+      if (this.vy) {
+        c.restore();
+        const k = Math.min(1, -camY / 192);
+        c.save();
+        c.globalAlpha = 0.45 * k;
+        this.r.blit('altitude', W, PH, 0, 0, g => {
+          g.fillStyle = lin(g, 0, 0, 0, PH, [[0, 'rgba(24,60,150,0.9)'], [0.6, 'rgba(70,130,220,0.25)'], [1, 'rgba(120,180,240,0)']]);
+          g.fillRect(0, 0, W, PH);
+        });
+        c.restore();
+      }
+      this.vy = 0;
+    }
+    // Desenha sem o deslocamento vertical (céu e bordas ficam presos à tela).
+    fixed(fn) {
+      if (!this.vy) return fn();
+      const c = this.r.c;
+      c.save();
+      c.translate(0, -this.vy);
+      fn();
+      c.restore();
+    }
+    theme(l, cam, t) {
       const theme = l.theme;
       if (theme === 'underground') return this.cave(cam, t);
       if (theme === 'castle' || theme === 'bowser') return this.castle(cam, t, theme === 'bowser');
@@ -518,9 +546,11 @@
         g.fillStyle = lin(g, x0, y0, x1, y1, [[0, 'rgba(0,0,0,0.5)'], [1, 'rgba(0,0,0,0)']]);
         g.fillRect(0, 0, w, h);
       });
-      edge('vigL', 56, PH, 0, 0, 0, 0, 56, 0);
-      edge('vigR', 56, PH, W - 56, 0, 56, 0, 0, 0);
-      edge('vigT', W, 36, 0, 0, 0, 0, 0, 36);
+      this.fixed(() => {
+        edge('vigL', 56, PH, 0, 0, 0, 0, 56, 0);
+        edge('vigR', 56, PH, W - 56, 0, 56, 0, 0, 0);
+        edge('vigT', W, 36, 0, 0, 0, 0, 0, 36);
+      });
     }
 
     ground(l, tx, ty, x, y) {

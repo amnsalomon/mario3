@@ -9,6 +9,8 @@
   const ROWS = 14;
   const FLOOR = 12; // primeira linha do chão
   const ARENA = 28; // colunas reservadas para a arena do chefe (uma tela inteira)
+  const SKY_ROWS = 12; // linhas acima da tela, alcançadas voando ou subindo no pé de feijão
+  const TAU = Math.PI * 2;
 
   const T = Object.freeze({
     EMPTY: 0,
@@ -31,12 +33,13 @@
     CLOUD: 17, // nuvem atravessável por baixo
     HIDDEN: 18, // bloco invisível
     CANNON_BASE: 19,
-    SEMI_BODY: 20 // corpo decorativo dos blocos grandes coloridos
+    SEMI_BODY: 20, // corpo decorativo dos blocos grandes coloridos
+    BURNER: 21 // bocal de maçarico das naves e tanques
   });
 
   const SOLID_TILES = new Set([
     T.GROUND, T.BRICK, T.QUESTION, T.USED, T.STONE, T.PIPE_TL, T.PIPE_TR, T.PIPE_L, T.PIPE_R,
-    T.ICE, T.WOOD, T.SPIKE, T.CANNON, T.CANNON_BASE
+    T.ICE, T.WOOD, T.SPIKE, T.CANNON, T.CANNON_BASE, T.BURNER
   ]);
   const isSolid = t => SOLID_TILES.has(t);
   const isOneWay = t => t === T.SEMI || t === T.CLOUD;
@@ -54,57 +57,66 @@
     { name: 'TERRA SOMBRIA', land: '#84616b', ink: '#201f32', sea: '#c2482f', stages: ['dark', 'tank', 'dark2', 'fortress', 'tank2', 'bowser'] }
   ];
 
-  // Peças disponíveis em cada tipo de fase (peso = frequência).
+  // Peças disponíveis em cada tipo de fase (peso = frequência). Peças perigosas só entram
+  // a partir de certa dificuldade e ficam mais comuns conforme o jogo avança (PIECE_RULES).
   const POOLS = {
-    basic: { flat: 1, pit: 3, blocks: 3, pipes: 2, stairs: 2, troop: 2, semis: 2, wall: 1, platforms: 1 },
-    hills: { semis: 4, pit: 2, blocks: 2, troop: 2, stairs: 2, platforms: 1 },
+    basic: { flat: 1, pit: 3, blocks: 3, pipes: 2, stairs: 2, troop: 3, semis: 2, wall: 1, platforms: 1, fallplat: 1 },
+    hills: { semis: 4, pit: 3, blocks: 2, troop: 3, stairs: 2, platforms: 1, fallplat: 1 },
     pipes: { pipes: 5, pit: 2, blocks: 2, troop: 2, stairs: 1 },
-    cave: { blocks: 3, pit: 2, pipes: 2, troop: 2, lowceil: 3, wall: 2, stairs: 1 },
-    desert: { quicksand: 3, pit: 1, blocks: 2, troop: 2, stairs: 2, pipes: 1 },
-    pyramid: { pyramid: 4, quicksand: 1, blocks: 2, troop: 2 },
-    islands: { pit: 4, platforms: 3, blocks: 2, troop: 1, semis: 1 },
-    giant: { giant: 4, pit: 2, troop: 2, pipes: 1, stairs: 1 },
-    climb: { stairs: 3, semis: 4, platforms: 2, blocks: 1 },
-    ice: { pit: 3, iceblocks: 3, blocks: 2, troop: 2, platforms: 1 },
-    pipeland: { pipes: 5, warp: 1, pit: 2, troop: 1, blocks: 1 },
-    piranhas: { pipes: 6, pit: 2, blocks: 1 },
-    dark: { pit: 3, blocks: 2, troop: 2, stairs: 2, cannons: 2, platforms: 1 },
-    fortress: { spikepit: 3, lavapit: 2, fstairs: 2, lift: 2, lowceil: 2, troop: 1 }
+    cave: { blocks: 3, pit: 3, pipes: 2, troop: 3, lowceil: 3, wall: 2, stairs: 1, firebar: 1 },
+    desert: { quicksand: 3, pit: 2, blocks: 2, troop: 3, stairs: 2, pipes: 1, firebar: 1 },
+    pyramid: { pyramid: 4, quicksand: 1, blocks: 2, troop: 2, firebar: 1 },
+    islands: { pit: 5, platforms: 3, blocks: 2, troop: 2, semis: 1, fallplat: 2 },
+    giant: { giant: 4, pit: 2, troop: 3, pipes: 1, stairs: 1 },
+    climb: { stairs: 3, semis: 4, platforms: 2, blocks: 1, fallplat: 2 },
+    ice: { pit: 3, iceblocks: 3, blocks: 2, troop: 3, platforms: 1, fallplat: 2 },
+    pipeland: { pipes: 5, warp: 1, pit: 2, troop: 2, blocks: 1 },
+    piranhas: { pipes: 6, pit: 2, blocks: 1, troop: 1 },
+    dark: { pit: 3, blocks: 2, troop: 3, stairs: 2, cannons: 3, platforms: 1, firebar: 2, bubblepit: 3, fallplat: 2, crusher: 1 },
+    fortress: { spikepit: 2, bubblepit: 3, fstairs: 2, lift: 2, lowceil: 2, troop: 1, firebar: 4, crusher: 2 }
+  };
+  const PIECE_RULES = {
+    firebar: { min: 0.06, grow: 2 },
+    bubblepit: { min: 0.05, grow: 1.5 },
+    fallplat: { min: 0.22, grow: 2 },
+    crusher: { min: 0.36, grow: 2 },
+    platforms: { min: 0, grow: 1 },
+    troop: { min: 0, grow: 1.5 }
   };
 
   const PLANS = {
-    grass: { build: 'ground', theme: 'grass', len: 150, pool: 'basic', secret: true },
-    hills: { build: 'ground', theme: 'grass', len: 160, pool: 'hills', secret: true },
+    grass: { build: 'ground', theme: 'grass', len: 150, pool: 'basic', secret: true, vine: true },
+    hills: { build: 'ground', theme: 'grass', len: 160, pool: 'hills', secret: true, pswitch: true },
     underground: { build: 'ground', theme: 'underground', len: 150, pool: 'cave', ceiling: 1 },
     fortress: { build: 'ground', theme: 'castle', kind: 'fortress', len: 120, pool: 'fortress', ceiling: 2, boss: 'boom' },
-    pipes: { build: 'ground', theme: 'grass', len: 165, pool: 'pipes', secret: true },
+    pipes: { build: 'ground', theme: 'grass', len: 165, pool: 'pipes', secret: true, vine: true },
     airship: { build: 'airship', theme: 'airship', kind: 'airship', len: 150, boss: 'boom', autoscroll: 36 },
-    desert: { build: 'ground', theme: 'desert', len: 150, pool: 'desert', secret: true },
+    desert: { build: 'ground', theme: 'desert', len: 150, pool: 'desert', secret: true, vine: true, pswitch: true },
     pyramid: { build: 'ground', theme: 'desert', len: 160, pool: 'pyramid' },
     sandcave: { build: 'ground', theme: 'underground', len: 150, pool: 'cave', ceiling: 1 },
-    quicksand: { build: 'ground', theme: 'desert', len: 170, pool: 'desert' },
-    islands: { build: 'ground', theme: 'sea', len: 155, pool: 'islands' },
+    quicksand: { build: 'ground', theme: 'desert', len: 170, pool: 'desert', vine: true },
+    islands: { build: 'ground', theme: 'sea', len: 155, pool: 'islands', vine: true },
     water: { build: 'water', theme: 'water', len: 150 },
-    islands2: { build: 'ground', theme: 'sea', len: 165, pool: 'islands', secret: true },
+    islands2: { build: 'ground', theme: 'sea', len: 165, pool: 'islands', secret: true, pswitch: true },
     reef: { build: 'water', theme: 'water', len: 165 },
-    giant: { build: 'ground', theme: 'giant', len: 150, pool: 'giant', giant: true },
-    giant2: { build: 'ground', theme: 'giant', len: 160, pool: 'giant', giant: true, secret: true },
-    giant3: { build: 'ground', theme: 'giant', len: 170, pool: 'giant', giant: true },
-    climb: { build: 'ground', theme: 'grass', len: 155, pool: 'climb' },
+    giant: { build: 'ground', theme: 'giant', len: 150, pool: 'giant', giant: true, vine: true },
+    giant2: { build: 'ground', theme: 'giant', len: 160, pool: 'giant', giant: true, secret: true, pswitch: true },
+    giant3: { build: 'ground', theme: 'giant', len: 170, pool: 'giant', giant: true, vine: true },
+    climb: { build: 'ground', theme: 'grass', len: 155, pool: 'climb', vine: true, pswitch: true },
     sky: { build: 'sky', theme: 'sky', len: 150 },
     sky2: { build: 'sky', theme: 'sky', len: 165 },
     skylift: { build: 'sky', theme: 'sky', len: 170, lifts: true },
-    ice: { build: 'ground', theme: 'ice', len: 150, pool: 'ice' },
-    ice2: { build: 'ground', theme: 'ice', len: 160, pool: 'ice', secret: true, icyFloor: true },
+    ice: { build: 'ground', theme: 'ice', len: 150, pool: 'ice', vine: true },
+    ice2: { build: 'ground', theme: 'ice', len: 160, pool: 'ice', secret: true, icyFloor: true, pswitch: true },
     icecave: { build: 'ground', theme: 'underground', len: 155, pool: 'cave', ceiling: 1, icyFloor: true },
-    ice3: { build: 'ground', theme: 'ice', len: 175, pool: 'ice', icyFloor: true },
-    pipeland: { build: 'ground', theme: 'pipe', len: 155, pool: 'pipeland', secret: true },
+    ice3: { build: 'ground', theme: 'ice', len: 175, pool: 'ice', icyFloor: true, vine: true },
+    pipeland: { build: 'ground', theme: 'pipe', len: 155, pool: 'pipeland', secret: true, pswitch: true },
     pipecave: { build: 'ground', theme: 'underground', len: 160, pool: 'pipes', ceiling: 1 },
-    pipeland2: { build: 'ground', theme: 'pipe', len: 170, pool: 'pipeland' },
-    piranhas: { build: 'ground', theme: 'pipe', len: 170, pool: 'piranhas' },
-    dark: { build: 'ground', theme: 'lava', len: 155, pool: 'dark' },
+    pipeland2: { build: 'ground', theme: 'pipe', len: 170, pool: 'pipeland', vine: true },
+    piranhas: { build: 'ground', theme: 'pipe', len: 170, pool: 'piranhas', vine: true },
+    dark: { build: 'ground', theme: 'lava', len: 155, pool: 'dark', vine: true },
     tank: { build: 'tank', theme: 'tank', kind: 'tank', len: 140, boss: 'boom', autoscroll: 32 },
-    dark2: { build: 'ground', theme: 'lava', len: 170, pool: 'dark' },
+    dark2: { build: 'ground', theme: 'lava', len: 170, pool: 'dark', pswitch: true },
     tank2: { build: 'tank', theme: 'tank', kind: 'tank', len: 160, boss: 'boom', autoscroll: 36 },
     bowser: { build: 'ground', theme: 'bowser', kind: 'bowser', len: 130, pool: 'fortress', ceiling: 2, boss: 'bowser', time: 400 }
   };
@@ -127,6 +139,7 @@
   };
 
   // Tamanho dos inimigos (largura, altura) em pixels lógicos.
+  const PLAY_BOTTOM = ROWS * TILE + 24; // abaixo da tela: de onde saltam os peixes
   const ENEMY_SIZE = { goomba: [16, 16], koopa: [14, 24], shell: [14, 14], piranha: [16, 24], fish: [16, 14], bullet: [16, 14] };
 
   function mulberry32(seed) {
@@ -149,6 +162,13 @@
     return plan;
   }
 
+  // Dificuldade de 0 (1-1) a 1 (castelo final), crescendo fase a fase como no SMB3.
+  function difficulty(index) {
+    const world = Math.floor(index / 6), slot = index % 6;
+    return clamp((world + slot / 6) / 7.6, 0, 1);
+  }
+  const hasSky = plan => (plan.build === 'ground' || plan.build === 'sky') && !plan.ceiling;
+
   function makeEnemy(l, type, x, bottomY, extra = {}) {
     const giant = !!extra.giant;
     const [w0, h0] = ENEMY_SIZE[type];
@@ -162,37 +182,45 @@
     return e;
   }
 
-  function baseLevel(index, cols, plan) {
+  function baseLevel(index, cols, plan, opts = {}) {
     const world = Math.floor(index / 6), slot = index % 6;
+    const d = opts.bonus ? 0 : difficulty(index);
+    const skyRows = opts.bonus || !hasSky(plan) ? 0 : SKY_ROWS;
     return {
       index, world, slot, plan: plan.key, theme: plan.theme, kind: plan.kind || 'normal',
-      cols, rows: ROWS, width: cols * TILE,
+      cols, rows: ROWS, width: cols * TILE, diff: d,
       tiles: Array.from({ length: ROWS }, () => new Array(cols).fill(T.EMPTY)),
+      skyRows, sky: Array.from({ length: skyRows }, () => new Array(cols).fill(T.EMPTY)),
       blocks: {}, groups: {}, boxes: [], enemies: [], items: [], coins: [], platforms: [], pipes: [], cannons: [],
+      firebars: [], bubbles: [], crushers: [], burners: [], vines: [], switches: [], secrets: [],
       goal: null, orb: null, boss: null, arenaStart: null, water: null,
       autoscroll: plan.autoscroll || 0, time: plan.time || 300,
+      enemySpeed: 1 + 0.3 * d, cannonDelay: 3.6 - 1.2 * d, bulletSpeed: 66 + 30 * d,
       spawn: { x: 40, y: FLOOR * TILE }, endX: null, bonus: false, secretExit: null, bonusRoom: null
     };
   }
+  // Linha de blocos, incluindo as do céu (y negativo).
+  const tileRow = (l, y) => (y >= 0 ? l.tiles[y] : l.sky[y + l.skyRows]);
 
   class Builder {
     constructor(l, plan, rng) {
       this.l = l;
       this.plan = plan;
       this.rng = rng;
-      this.d = l.world / 7;
+      this.d = l.diff;
       this.ground = plan.ground;
       this.hard = plan.hard;
-      this.maxGap = 3 + (l.world >= 3 ? 1 : 0) + (l.world >= 6 ? 1 : 0);
+      this.maxGap = 3 + Math.floor(this.d * 3.2);
       this.powerCount = 0;
       this.groupCount = 0;
     }
+    rate(base, grow = 0.4) { return clamp(base + this.d * grow, 0, 0.95); }
     rand() { return this.rng(); }
     int(a, b) { return a + Math.floor(this.rng() * (b - a + 1)); }
     chance(p) { return this.rng() < p; }
     pick(list) { return list[Math.floor(this.rng() * list.length)]; }
-    set(x, y, t) { if (x >= 0 && x < this.l.cols && y >= 0 && y < ROWS) this.l.tiles[y][x] = t; }
-    get(x, y) { return x < 0 || x >= this.l.cols || y < 0 || y >= ROWS ? T.EMPTY : this.l.tiles[y][x]; }
+    set(x, y, t) { if (x >= 0 && x < this.l.cols && y >= -this.l.skyRows && y < ROWS) tileRow(this.l, y)[x] = t; }
+    get(x, y) { return x < 0 || x >= this.l.cols || y < -this.l.skyRows || y >= ROWS ? T.EMPTY : tileRow(this.l, y)[x]; }
     free(x, y) { return this.get(x, y) === T.EMPTY; }
     floor(x0, x1, top = FLOOR, tile = this.ground) {
       for (let x = Math.max(0, x0); x < Math.min(this.l.cols, x1); x++) for (let y = top; y < ROWS; y++) this.set(x, y, tile);
@@ -218,7 +246,7 @@
       }
     }
     powerItem() { this.powerCount++; return 'power'; }
-    needsPower() { return this.powerCount < 1 || (this.powerCount < 3 && this.chance(0.3)); }
+    needsPower() { return this.powerCount < 1 || (this.powerCount < (this.d < 0.3 ? 3 : 2) && this.chance(0.3 - this.d * 0.12)); }
     pitFill(x) {
       this.clearCol(x);
       if (['castle', 'bowser', 'lava'].includes(this.plan.theme)) this.set(x, 13, T.LAVA);
@@ -231,8 +259,35 @@
     }
     walker(col, surfaceRow = FLOOR) {
       const giant = this.plan.giant && this.chance(0.45);
-      const type = this.chance(0.35 + this.d * 0.3) ? 'koopa' : 'goomba';
-      return this.enemy(type, col, surfaceRow, giant ? { giant: true } : {});
+      const type = this.chance(0.3 + this.d * 0.4) ? 'koopa' : 'goomba';
+      const extra = giant ? { giant: true } : {};
+      // Tartarugas em plataformas altas patrulham e dão meia-volta na beirada.
+      if (type === 'koopa' && surfaceRow < FLOOR) extra.smart = true;
+      return this.enemy(type, col, surfaceRow, extra);
+    }
+    firebar(cx, cy, n, speed) { this.l.firebars.push({ x: cx, y: cy, n, speed, phase: this.rand() * TAU }); }
+    bubble(col, surfaceRow = 13) {
+      this.l.bubbles.push({ x: col * TILE + 2, w: 12, h: 14, surface: surfaceRow * TILE, height: 92 + 48 * this.d + this.rand() * 16, period: 2.3 + this.rand() * 1.1, phase: this.rand() * 3 });
+    }
+    jumper(col, w) {
+      // Peixe que salta de um lado ao outro do buraco.
+      const dir = this.chance(0.5) ? 1 : -1;
+      const span = w * TILE;
+      const e = makeEnemy(this.l, 'fish', (dir > 0 ? col : col + w) * TILE - 8, PLAY_BOTTOM, {
+        jumper: true, x0: (dir > 0 ? col : col + w) * TILE - 8, dirJ: dir, span, peak: 110 + 50 * this.d,
+        period: 2.4 + this.rand() * 0.8, phase: this.rand() * 2, hidden: true
+      });
+      return e;
+    }
+    crusher(col, topRow) {
+      this.l.crushers.push({ x: col * TILE, y: topRow * TILE, w: 32, h: 32, baseY: topRow * TILE, state: 'wait', timer: 0, vy: 0 });
+    }
+    burner(col, row) {
+      this.set(col, row, T.BURNER);
+      this.l.burners.push({ tx: col, ty: row, period: 3.2 - this.d * 0.4, on: 1.0 + this.d * 0.2, phase: this.rand() * 3 });
+    }
+    fallPlat(x, y, w = 32) {
+      this.l.platforms.push({ x, y, w, h: 8, baseX: x, baseY: y, axis: 'x', amp: 0, rate: 0, phase: 0, dx: 0, oldY: y, kind: 'fall', state: 0, t: 0, vy: 0 });
     }
     pipe(x, h, opts = {}) {
       const top = FLOOR - h;
@@ -240,7 +295,7 @@
       this.set(x + 1, top, T.PIPE_TR);
       for (let y = top + 1; y < FLOOR; y++) { this.set(x, y, T.PIPE_L); this.set(x + 1, y, T.PIPE_R); }
       if (opts.piranha) {
-        makeEnemy(this.l, 'piranha', x * TILE + 8, top * TILE + 24, { baseY: top * TILE, phase: this.rand() * 4, hidden: true });
+        makeEnemy(this.l, 'piranha', x * TILE + 8, top * TILE + 24, { baseY: top * TILE, phase: this.rand() * 4, hidden: true, fire: !!opts.fire });
       }
       return { x, top };
     }
@@ -264,7 +319,11 @@
       this.l.boxes.push({ x0, x1, top, color });
     }
     weighted(pool, last) {
-      const entries = Object.entries(pool).filter(([k]) => k !== last || k === 'flat');
+      const entries = Object.entries(pool).map(([k, w]) => {
+        const rule = PIECE_RULES[k];
+        if (!rule) return [k, w];
+        return [k, this.d < rule.min ? 0 : w * (1 + rule.grow * (this.d - rule.min))];
+      }).filter(([k, w]) => w > 0 && (k !== last || k === 'flat'));
       const total = entries.reduce((s, [, w]) => s + w, 0);
       let r = this.rng() * total;
       for (const [k, w] of entries) { r -= w; if (r < 0) return k; }
@@ -295,7 +354,7 @@
       if (x + n > max) return -1;
       b.floor(x, x + n);
       if (b.chance(0.5)) for (let i = 1; i < n - 1; i++) b.coin(x + i, 9);
-      if (b.chance(0.4)) b.walker(x + n - 2);
+      if (b.chance(b.rate(0.45))) b.walker(x + n - 2);
       return x + n;
     },
 
@@ -305,7 +364,11 @@
       b.floor(x, x + 2);
       b.floor(x + 2 + w, x + n);
       for (let c = x + 2; c < x + 2 + w; c++) b.pitFill(c);
-      for (let i = 0; i <= w + 1; i++) b.coin(x + 1 + i, 8 - Math.round(Math.sin((Math.PI * i) / (w + 1)) * 2));
+      if (b.chance(0.7)) for (let i = 0; i <= w + 1; i++) b.coin(x + 1 + i, 8 - Math.round(Math.sin((Math.PI * i) / (w + 1)) * 2));
+      const lava = ['castle', 'bowser', 'lava'].includes(b.plan.theme);
+      if (lava && b.chance(b.rate(0.3, 0.5))) b.bubble(x + 2 + Math.floor((w - 1) / 2));
+      if (b.plan.theme === 'sea' && b.d > 0.18 && b.chance(b.rate(0.4))) b.jumper(x + 2, w);
+      if (b.chance(b.rate(0.15, 0.4))) b.walker(x + n - 1);
       return x + n;
     },
 
@@ -319,12 +382,13 @@
         const c = start + i;
         if (c === powerAt) b.block(c, 8, T.QUESTION, b.powerItem());
         else if (b.chance(0.45)) b.block(c, 8, T.QUESTION, b.chance(0.06) ? 'star' : 'coin');
-        else b.block(c, 8, T.BRICK, b.chance(0.05) ? 'oneup' : null);
+        else b.block(c, 8, T.BRICK, b.chance(0.04) ? 'oneup' : b.chance(0.12) ? 'coins' : null);
       }
       if (b.chance(0.4)) for (let i = 0; i < k; i++) b.coin(start + i, 4);
       else if (b.chance(0.3)) b.block(start + b.int(0, k - 1), 4, T.QUESTION, 'coin');
-      if (b.chance(0.25)) b.block(x + n - 2, 8, T.HIDDEN, b.chance(0.5) ? 'oneup' : 'coin');
-      if (b.chance(0.6)) b.walker(x + n - 2);
+      if (b.chance(0.2)) b.block(x + n - 2, 8, T.HIDDEN, 'coin');
+      if (b.chance(b.rate(0.6, 0.35))) b.walker(x + n - 2);
+      if (b.d > 0.35 && b.chance(b.rate(0.1, 0.5))) b.walker(start + Math.floor(k / 2), 8);
       return x + n;
     },
 
@@ -342,10 +406,10 @@
       plan.forEach(([gap, h], i) => {
         c += gap;
         if (h === 4) { b.set(c - 1, FLOOR - 1, b.hard); b.set(c - 1, FLOOR - 2, b.hard); }
-        const piranha = b.chance(0.25 + 0.5 * b.d) || b.plan.pool === 'piranhas';
-        b.pipe(c, h, { piranha });
+        const piranha = b.chance(0.3 + 0.5 * b.d) || b.plan.pool === 'piranhas';
+        b.pipe(c, h, { piranha, fire: piranha && b.d > 0.15 && b.chance(b.rate(0.15, 0.6)) });
         const next = plan[i + 1];
-        if (next && next[0] >= 3 && next[1] !== 4 && b.chance(0.4)) b.walker(c + 3);
+        if (next && next[0] >= 3 && next[1] !== 4 && b.chance(b.rate(0.45))) b.walker(c + 3);
         c += 2;
       });
       return x + n;
@@ -369,6 +433,8 @@
         b.column(base + h + 1, FLOOR - h, FLOOR - 1, b.hard);
       }
       for (let i = 0; i < 3; i++) b.coin(base + h - 1 + i, FLOOR - h - 3);
+      if (mode !== 'gap' && b.chance(b.rate(0.25, 0.5))) b.walker(base + h - 1, FLOOR - h);
+      if (b.chance(b.rate(0.3))) b.walker(x + w + 1);
       return x + w + 2;
     },
 
@@ -376,10 +442,10 @@
       const n = b.int(9, 12);
       if (x + n > max) return -1;
       b.floor(x, x + n);
-      const kind = b.int(0, 2);
-      if (kind === 0) for (let i = 0; i < 3; i++) b.enemy('goomba', x + 3 + i * 2);
-      else if (kind === 1) { b.enemy('koopa', x + 3); b.enemy('goomba', x + 6); }
-      else { b.walker(x + 4); b.walker(x + 8); }
+      const kind = b.int(0, 2), extra = b.d > 0.4 ? 1 : 0;
+      if (kind === 0) for (let i = 0; i < 3 + extra; i++) b.enemy('goomba', x + 2 + i * 2);
+      else if (kind === 1) { b.enemy('koopa', x + 3); b.enemy('goomba', x + 6); if (extra) b.enemy('goomba', x + 8); }
+      else { b.walker(x + 3); b.walker(x + 6); if (b.chance(b.rate(0.3))) b.walker(x + 9); }
       if (b.chance(0.6)) {
         const c = x + 2 + b.int(0, n - 7);
         for (let i = 0; i < 3; i++) {
@@ -401,7 +467,8 @@
         b.semiBox(x + 10, x + 13, 5, (color + 2) % 4);
         for (let c = x + 10; c < x + 13; c++) b.coin(c, 3);
       } else for (let c = x + 6; c < x + 9; c++) b.coin(c, 5);
-      if (b.chance(0.5)) b.enemy('goomba', x + 8, 7);
+      if (b.chance(b.rate(0.5))) b.walker(x + 8, 7);
+      if (b.chance(b.rate(0.3))) b.walker(x + 2, 9);
       return x + n;
     },
 
@@ -566,6 +633,74 @@
       return x + n;
     },
 
+    firebar(b, x, max) {
+      const n = 11;
+      if (x + n > max) return -1;
+      b.floor(x, x + n);
+      const low = b.chance(0.45), col = x + 5, row = low ? FLOOR - 1 : 8;
+      b.block(col, row, T.USED);
+      const balls = 4 + (b.d > 0.45 ? 1 : 0) + (b.d > 0.8 ? 1 : 0);
+      const speed = (1.5 + b.d * 1.1) * (b.chance(0.5) ? 1 : -1);
+      b.firebar(col * TILE + 8, row * TILE + 8, balls, speed);
+      if (low) for (let c = x + 4; c < x + 7; c++) b.coin(c, 7);
+      else for (let c = x + 2; c < x + 9; c += 2) b.coin(c, 10);
+      if (b.chance(b.rate(0.2))) b.walker(x + n - 2);
+      return x + n;
+    },
+
+    bubblepit(b, x, max) {
+      const w = b.int(2, 3) + (b.d > 0.5 ? 1 : 0), n = w + 4;
+      if (x + n > max) return -1;
+      b.floor(x, x + 2);
+      b.floor(x + 2 + w, x + n);
+      for (let c = x + 2; c < x + 2 + w; c++) { b.clearCol(c); b.set(c, 13, T.LAVA); }
+      b.bubble(x + 2 + Math.floor((w - 1) / 2));
+      if (w >= 4) b.bubble(x + 1 + w);
+      return x + n;
+    },
+
+    fallplat(b, x, max) {
+      const w = b.int(6, 8) + (b.d > 0.6 ? 2 : 0), n = w + 4;
+      if (x + n > max) return -1;
+      b.floor(x, x + 2);
+      b.floor(x + 2 + w, x + n);
+      for (let c = x + 2; c < x + 2 + w; c++) b.pitFill(c);
+      const k = Math.max(2, Math.round(w / 3.5)), seg = (w * TILE) / k;
+      for (let i = 0; i < k; i++) {
+        const px = Math.round((x + 2) * TILE + (i + 0.5) * seg - 16);
+        b.fallPlat(px, (i % 2 ? 9 : 10) * TILE);
+        b.coin(Math.floor((px + 12) / TILE), i % 2 ? 7 : 8);
+      }
+      return x + n;
+    },
+
+    crusher(b, x, max) {
+      const n = 12;
+      if (x + n > max) return -1;
+      b.floor(x, x + n);
+      const top = b.plan.ceiling || 2;
+      b.crusher(x + 4, top);
+      if (b.d > 0.6) b.crusher(x + 8, top);
+      for (let c = x + 3; c < x + 10; c++) b.coin(c, 10);
+      return x + n;
+    },
+
+    // Botão P: transforma os tijolos em moedas por alguns segundos.
+    pswitch(b, x, max) {
+      const n = 17;
+      if (x + n > max) return -1;
+      b.floor(x, x + n);
+      b.block(x + 2, 8, T.BRICK);
+      b.block(x + 3, 8, T.BRICK, 'pswitch');
+      b.block(x + 4, 8, T.BRICK);
+      for (let c = x + 7; c < x + 14; c++) for (let y = 5; y <= 7; y++) b.block(c, y, T.BRICK);
+      for (let c = x + 7; c < x + 14; c++) b.coin(c, 3);
+      b.block(x + 15, 4, T.HIDDEN, 'oneup');
+      b.l.secrets.push('pswitch');
+      if (b.chance(b.rate(0.3))) b.walker(x + 12);
+      return x + n;
+    },
+
     secret(b, x, max) {
       const n = 16;
       if (x + n > max) return -1;
@@ -607,11 +742,17 @@
     b.floor(0, 8);
     let x = PIECES.intro(b, 8, limit), last = 'intro', guard = 0;
     let secretAt = plan.secret ? Math.floor(l.cols * (0.35 + b.rand() * 0.2)) : -1;
+    let switchAt = plan.pswitch ? Math.floor(l.cols * (0.18 + b.rand() * 0.12)) : -1;
     while (x < limit && guard++ < 200) {
       if (secretAt >= 0 && x >= secretAt) {
         secretAt = -1;
         const nx = PIECES.secret(b, x, limit);
         if (nx > 0) { x = nx; last = 'secret'; continue; }
+      }
+      if (switchAt >= 0 && x >= switchAt) {
+        switchAt = -1;
+        const nx = PIECES.pswitch(b, x, limit);
+        if (nx > 0) { x = nx; last = 'pswitch'; continue; }
       }
       const name = b.weighted(POOLS[plan.pool], last);
       let nx = PIECES[name](b, x, limit);
@@ -622,12 +763,114 @@
       } else last = name;
       x = nx;
       const gap = b.int(1, 3);
-      b.floor(x, Math.min(limit, x + gap));
+      b.floor(x, x + gap);
       x += gap;
     }
-    b.floor(x, l.cols);
+    b.floor(Math.min(x, limit), l.cols);
+    fillPatrols(b, limit);
     if (plan.boss) addArena(b);
     else addGoal(b);
+    hiddenOneUp(b);
+    skyBonus(b, plan);
+  }
+
+  // Garante uma quantidade mínima de inimigos, crescente com a dificuldade (o SMB3 é bem povoado).
+  function fillPatrols(b, limit) {
+    const l = b.l;
+    const fort = b.plan.pool === 'fortress';
+    const want = fort ? Math.round(l.cols / 40 + b.d * l.cols / 30) : Math.round(l.cols / 15 + b.d * l.cols / 11);
+    const near = c => l.enemies.some(e => e.type !== 'piranha' && Math.abs(e.x / TILE - c) < 5);
+    for (let tries = 0; tries < 400 && l.enemies.filter(e => e.type !== 'piranha').length < want; tries++) {
+      const c = b.int(18, limit - 2);
+      if (near(c)) continue;
+      // superfície mais alta livre nessa coluna
+      let row = -1;
+      for (let y = 3; y <= FLOOR; y++) {
+        const t = b.get(c, y);
+        if ((isSolid(t) || isOneWay(t)) && t !== T.SPIKE && t !== T.LAVA && t !== T.CANNON) { row = y; break; }
+        if (t !== T.EMPTY) break;
+      }
+      const cols = b.plan.giant ? [c, c + 1] : [c];
+      const rows = b.plan.giant ? 3 : 2;
+      if (row < 0 || cols.some(x => isPipeTile(b.get(x, row)) || !(isSolid(b.get(x, row)) || isOneWay(b.get(x, row))))) continue;
+      if (cols.some(x => { for (let k = 1; k <= rows; k++) if (b.get(x, row - k) !== T.EMPTY) return true; return false; })) continue;
+      if (row === FLOOR && (!isSolid(b.get(c - 1, FLOOR)) || !isSolid(b.get(c + cols.length, FLOOR)))) continue;
+      if (b.plan.giant) b.enemy(b.chance(0.5) ? 'goomba' : 'koopa', c, row, { giant: true, smart: row < FLOOR });
+      else b.walker(c, row);
+    }
+  }
+  const isPipeTile = t => t >= T.PIPE_TL && t <= T.PIPE_R;
+
+  // Bloco invisível com vida extra na beirada de um buraco (lugar típico de segredo).
+  function hiddenOneUp(b) {
+    const l = b.l, spots = [];
+    const end = (l.goal ? l.goal.x : l.arenaStart || l.width) / TILE - 10;
+    for (let x = 16; x < end; x++) {
+      if (!isSolid(b.get(x, FLOOR)) || isSolid(b.get(x + 1, FLOOR))) continue;
+      const h = x - 3;
+      let clear = true;
+      for (const c of [h - 1, h, h + 1]) {
+        if (!isSolid(b.get(c, FLOOR))) clear = false;
+        for (let y = 4; y < FLOOR; y++) if (b.get(c, y) !== T.EMPTY) clear = false;
+      }
+      if (clear) spots.push(h);
+    }
+    if (!spots.length) return;
+    const x = spots[Math.floor(b.rand() * spots.length)];
+    b.block(x, 8, T.HIDDEN, 'oneup');
+    l.coins = l.coins.filter(c => !(c.x === x * TILE + 4 && c.y === 8 * TILE + 2));
+  }
+
+  // Céu escondido: nuvens cheias de moedas acima da tela. Uma é alcançada por um pé de feijão
+  // que nasce de um tijolo; a outra, mais alta, só voando com a Folha (há uma trilha de moedas
+  // subindo como pista).
+  function skyBonus(b, plan) {
+    const l = b.l;
+    if (!l.skyRows) return;
+    const end = Math.floor((l.goal ? l.goal.x : l.arenaStart || l.width) / TILE) - 14;
+    const clearCol = (c, from, to) => { for (let y = from; y <= to; y++) if (b.get(c, y) !== T.EMPTY) return false; return true; };
+    const cloudStrip = (x0, x1, row, coinsRow, first = 0) => {
+      let c = x0;
+      while (c < x1) {
+        const len = Math.min(x1 - c, c === x0 && first ? first : b.int(4, 7));
+        for (let i = 0; i < len; i++) { b.set(c + i, row, T.CLOUD); b.coin(c + i, row - 1); if (coinsRow !== null) b.coin(c + i, coinsRow); }
+        c += len + 2;
+      }
+    };
+    let placed = 0;
+    // 1) Pé de feijão
+    if (plan.vine && plan.build === 'ground') {
+      for (let tries = 0; tries < 80; tries++) {
+        const c = b.int(22, Math.max(23, Math.floor(end * 0.6)));
+        if (![c - 1, c, c + 1].every(x => isSolid(b.get(x, FLOOR)) && clearCol(x, 0, FLOOR - 1))) continue;
+        if (l.coins.some(k => Math.abs(k.x - c * TILE) < 20 && k.y > 7 * TILE && k.y < 10 * TILE)) continue;
+        const row = -6, len = b.int(15, 21);
+        if (c + len > end) continue;
+        b.block(c, 8, T.BRICK, 'vine');
+        l.blocks[c + ',8'].vineTop = (row - 2) * TILE;
+        cloudStrip(c - 2, c + len, row, row - 3, 9);
+        b.block(c + Math.floor(len / 2), row - 4, T.QUESTION, b.chance(0.5) ? 'oneup' : 'star');
+        placed++;
+        break;
+      }
+    }
+    // 2) Nuvem alta para quem voa
+    const lo = Math.max(30, Math.floor(end * 0.45));
+    for (let tries = 0; tries < 60; tries++) {
+      const c = b.int(lo, Math.max(lo, end - 12));
+      const row = -8, len = b.int(12, 16);
+      let free = true;
+      for (let x = c - 2; x < c + len + 1 && free; x++) for (let y = row - 4; y <= row; y++) if (b.get(x, y) !== T.EMPTY) free = false;
+      if (!free || c + len > end + 10) continue;
+      cloudStrip(c, c + len, row, null);
+      for (let x = c + 1; x < c + len - 1; x += 2) b.coin(x, row - 3);
+      // trilha de moedas subindo, na inclinação do voo
+      for (let k = 0; k < 7; k++) b.coin(c - 14 + k * 2, 5 - Math.round(k * 2.2));
+      if (b.chance(0.5)) b.block(c + len - 3, row - 4, T.QUESTION, 'oneup');
+      placed++;
+      break;
+    }
+    if (placed) l.secrets.push('sky');
   }
 
   function buildSky(l, plan, b) {
@@ -636,6 +879,18 @@
     const limit = l.cols - 24;
     let x = 10, row = FLOOR, guard = 0;
     while (x < limit - 4 && guard++ < 200) {
+      if (b.d > 0.25 && b.chance(b.rate(0.05, 0.3))) {
+        // nuvens frágeis que despencam
+        const w = b.int(6, 8);
+        if (x + w + 5 > limit) break;
+        const k = Math.max(2, Math.round(w / 3.5)), seg = (w * TILE) / k;
+        for (let i = 0; i < k; i++) b.fallPlat(Math.round(x * TILE + (i + 0.5) * seg - 16), clamp(row + (i % 2 ? -1 : 0), 6, 11) * TILE);
+        x += w;
+        const len = b.int(3, 5);
+        for (let c = x; c < x + len; c++) b.set(c, row, T.CLOUD);
+        x += len;
+        continue;
+      }
       if ((plan.lifts && b.chance(0.35)) || b.chance(0.12)) {
         const w = b.int(6, 8);
         if (x + w + 5 > limit) break;
@@ -647,7 +902,7 @@
         x += len;
         continue;
       }
-      const gap = b.int(2, Math.min(4, b.maxGap));
+      const gap = b.int(2, Math.min(5, b.maxGap));
       const rise = gap >= 4 ? 1 : 2;
       const nrow = clamp(row + b.int(-rise, 2), 6, 11);
       const len = b.int(3, 7);
@@ -655,7 +910,10 @@
       x += gap;
       for (let c = x; c < x + len; c++) b.set(c, nrow, T.CLOUD);
       if (b.chance(0.5)) for (let c = x; c < x + len; c++) b.coin(c, nrow - 2);
-      if (len >= 5 && b.chance(0.45)) b.enemy(b.chance(0.3 + b.d * 0.4) ? 'koopa' : 'goomba', x + len - 2, nrow);
+      if (len >= 4 && b.chance(b.rate(0.45))) {
+        const koopa = b.chance(0.3 + b.d * 0.4);
+        b.enemy(koopa ? 'koopa' : 'goomba', x + len - 2, nrow, koopa ? { smart: true } : {});
+      }
       if (b.chance(0.3) && nrow >= 8) b.block(x + 1, nrow - 4, T.QUESTION, b.needsPower() ? b.powerItem() : 'coin');
       x += len;
       row = nrow;
@@ -663,6 +921,8 @@
     x += 2;
     b.floor(x, l.cols);
     addGoal(b);
+    fillPatrols(b, limit);
+    skyBonus(b, plan);
   }
 
   function buildWater(l, plan, b) {
@@ -684,10 +944,10 @@
         for (let c = x; c < x + w; c++) b.coin(c, r + 2);
         x += w + b.int(3, 5);
       } else if (kind === 2) {
-        const n = b.int(1, 3);
+        const n = b.int(1, 3) + (b.d > 0.3 ? 1 : 0);
         for (let i = 0; i < n; i++) {
           const r = b.int(5, 10);
-          b.enemy('fish', x + i * 2, r, { baseY: r * TILE - 14, phase: b.rand() * 6, vx: -24 - b.d * 20 });
+          b.enemy('fish', x + i * 2, r, { baseY: r * TILE - 14, phase: b.rand() * 6, vx: -24 - b.d * 30, chase: b.d > 0.25 && b.chance(0.4) });
         }
         x += 7;
       } else if (kind === 3) {
@@ -720,8 +980,14 @@
       if (x + gap + len > arena - 2) break;
       x += gap;
       deck(b, x, x + len, ntop);
-      if (len >= 7 && b.chance(0.75)) b.cannon(x + 2 + b.int(0, len - 5), b.int(1, 2), ntop);
-      else if (b.chance(0.5)) b.column(x + len - 3, ntop - b.int(1, 2), ntop - 1, T.WOOD);
+      let used = -1;
+      if (len >= 7 && b.chance(0.7 + 0.25 * b.d)) { used = x + 2 + b.int(0, len - 5); b.cannon(used, b.int(1, 2), ntop); }
+      else if (b.chance(0.5)) { used = x + len - 3; b.column(used, ntop - b.int(1, 2), ntop - 1, T.WOOD); }
+      if (len >= 6 && b.d > 0.05 && b.chance(b.rate(0.3, 0.5))) {
+        let c = x + Math.floor(len / 2);
+        if (Math.abs(c - used) < 3) c = used + 3 < x + len - 2 ? used + 3 : used - 3;
+        if (c > x + 1 && c < x + len - 2 && Math.abs(c - used) >= 3 && b.get(c, ntop - 1) === T.EMPTY) b.burner(c, ntop);
+      }
       if (b.chance(0.5)) for (let c = x + 1; c < x + len - 1; c++) b.coin(c, ntop - 3);
       x += len;
       top = ntop;
@@ -743,9 +1009,10 @@
       for (let c = x; c < x + len; c++) for (let y = 9; y < FLOOR; y++) b.set(c, y, T.STONE);
       b.cannon(x + 2, 1, 9);
       if (len >= 10) b.cannon(x + len - 3, b.int(1, 2), 9);
+      if (b.chance(b.rate(0.35, 0.4))) b.burner(x + 5, 9);
       for (let c = x + 4; c < x + len - 4; c++) b.coin(c, 7);
       const gap = b.int(3, 5);
-      if (b.chance(0.4)) b.enemy('goomba', x + len + 1);
+      if (b.chance(b.rate(0.45))) b.enemy('goomba', x + len + 1);
       x += len + gap;
     }
     addArena(b);
@@ -754,7 +1021,7 @@
   function createLevel(index) {
     const plan = planFor(index);
     const world = Math.floor(index / 6);
-    const cols = plan.len + world * 2;
+    const cols = plan.len + world * 4;
     const l = baseLevel(index, cols, plan);
     const rng = mulberry32(index * 7919 + 1301);
     const b = new Builder(l, plan, rng);
@@ -764,6 +1031,14 @@
     else if (plan.build === 'tank') buildTank(l, plan, b);
     else buildGround(l, plan, b);
     l.enemies.forEach((e, i) => { e.id = i; });
+    if (l.pipes.some(q => q.target.type === 'bonus')) l.secrets.push('bonus');
+    if (Object.values(l.blocks).some(d => d.item === 'oneup') && [].concat(...l.tiles, ...l.sky).includes(T.HIDDEN)) {
+      for (const [k, d] of Object.entries(l.blocks)) {
+        const [x, y] = k.split(',').map(Number);
+        if (d.item === 'oneup' && tileRow(l, y)[x] === T.HIDDEN) { l.secrets.push('oneup'); break; }
+      }
+    }
+    l.secrets = [...new Set(l.secrets)];
     return l;
   }
 
@@ -771,7 +1046,7 @@
   function createBonusRoom(main) {
     const cols = 30;
     const plan = { key: 'bonus', theme: 'underground', kind: 'bonus', time: main.time };
-    const l = baseLevel(main.index, cols, plan);
+    const l = baseLevel(main.index, cols, plan, { bonus: true });
     l.bonus = true;
     l.kind = 'bonus';
     const b = new Builder(l, { ...plan, ground: T.STONE, hard: T.STONE }, mulberry32(main.index * 31 + 7));
@@ -798,6 +1073,11 @@
       if (t === T.CANNON && y < FLOOR && !isSolid(tile(x, y + 1)) && tile(x, y + 1) !== -1) issues.push(`${name}: canhão sem base em ${x},${y}`);
       if (t === T.SPIKE && !isSolid(tile(x, y - 1)) && !isSolid(tile(x, y + 1)) && y < 13) issues.push(`${name}: espinho solto em ${x},${y}`);
     }
+    for (let y = 0; y < (l.skyRows || 0); y++) for (let x = 0; x < l.cols; x++) {
+      const t = l.sky[y][x];
+      if (!Object.values(T).includes(t)) issues.push(`${name}: tile inválido no céu ${t} em ${x},${y - l.skyRows}`);
+    }
+    for (const q of l.firebars) if (!isSolid(tile(Math.floor(q.x / TILE), Math.floor(q.y / TILE)))) issues.push(`${name}: barra de fogo sem bloco`);
     for (const e of l.enemies) {
       if (['piranha', 'fish', 'bullet'].includes(e.type)) continue;
       const x0 = Math.floor(e.x / TILE), x1 = Math.floor((e.x + e.w - 1) / TILE);
@@ -819,7 +1099,7 @@
   }
 
   globalThis.MarioLevels = Object.freeze({
-    TILE, ROWS, FLOOR, ARENA, T, WORLDS, PLANS, POOLS, isSolid, isOneWay, isPipe,
-    createLevel, createBonusRoom, validateLevel, planFor, mulberry32
+    TILE, ROWS, FLOOR, ARENA, SKY_ROWS, T, WORLDS, PLANS, POOLS, isSolid, isOneWay, isPipe,
+    createLevel, createBonusRoom, validateLevel, planFor, mulberry32, difficulty
   });
 })();

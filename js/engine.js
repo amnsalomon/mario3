@@ -5,6 +5,9 @@
 
   const LV = globalThis.MarioLevels;
   const { TILE, ROWS, FLOOR, T, WORLDS, createLevel, createBonusRoom, isSolid, isOneWay } = LV;
+  const SECRET_NAMES = { sky: 'Céu de moedas', bonus: 'Sala secreta', pswitch: 'Botão P', oneup: 'Vida escondida' };
+  const BUBBLE_G = 700, FISH_G = 700;
+  const hash = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
   const W = 448, H = 256, PLAY = 224; // área lógica widescreen (7:4, quase 16:9)
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -96,6 +99,9 @@
     newGame() {
       this.cheats = this.cheats || { fly: false, fire: false, triple: false, mega: false, invincible: false };
       this.shake = 0;
+      this.cameraY = 0;
+      this.pTimer = 0;
+      this.found = [];
       this.mode = 'map';
       this.world = 0;
       this.mapPos = 0;
@@ -326,6 +332,9 @@
       this.freeze = 0;
       this.clock = 0;
       this.camera = 0;
+      this.cameraY = 0;
+      this.pTimer = 0;
+      this.found = [];
       this.particles = [];
       this.projectiles = [];
       this.ending = null;
@@ -336,7 +345,8 @@
         x: this.level.spawn.x, y: this.level.spawn.y - h, w: 14, h, power, vx: 0, vy: 0, facing: 1, grounded: true,
         duck: false, star: this.pendingStar, invuln: 0, pm: 0, pmFill: 0, pmDrain: 0, flight: 0, flap: 0, wag: 0,
         tail: 0, attackCooldown: 0, carry: null, chain: 0, starChain: 0, pipe: null, pipeCooldown: 0, coyote: 0,
-        jumpBuffer: 0, jumpHeld: false, skidding: false, inSand: false, swimming: false, prevBottom: 0, deathJump: false
+        jumpBuffer: 0, jumpHeld: false, skidding: false, inSand: false, swimming: false, prevBottom: 0, deathJump: false,
+        climb: false, landFx: 0, jumpFx: 0, flapFx: 0, fxClock: 0
       };
       this.pendingStar = 0;
       this.emit('enterStage', { stage: index });
@@ -375,10 +385,16 @@
     tile(tx, ty) {
       const l = this.level;
       if (tx < 0 || tx >= l.cols) return T.STONE;
-      if (ty < 0 || ty >= ROWS) return T.EMPTY;
+      if (ty >= ROWS) return T.EMPTY;
+      if (ty < 0) { const r = l.sky && l.sky[ty + (l.skyRows || 0)]; return r ? r[tx] : T.EMPTY; }
       return l.tiles[ty][tx];
     }
-    setTile(tx, ty, t) { if (tx >= 0 && tx < this.level.cols && ty >= 0 && ty < ROWS) this.level.tiles[ty][tx] = t; }
+    setTile(tx, ty, t) {
+      const l = this.level;
+      if (tx < 0 || tx >= l.cols || ty >= ROWS) return;
+      if (ty >= 0) l.tiles[ty][tx] = t;
+      else { const r = l.sky && l.sky[ty + (l.skyRows || 0)]; if (r) r[tx] = t; }
+    }
 
     colliders(box, mode = 'solid') {
       const out = [];
@@ -422,11 +438,13 @@
       if (hitY) b.vy = 0;
       if (vy >= 0) {
         for (const p of this.level.platforms) {
+          if (p.state === 3) continue;
           if (b.x + b.w > p.x && b.x < p.x + p.w && oldY + b.h <= p.oldY + 3 && b.y + b.h >= p.y && b.y < p.y + p.h) {
             b.y = p.y - b.h;
             b.vy = 0;
             b.grounded = true;
             b.x += p.dx || 0;
+            if (player) p.touched = true;
           }
         }
       }
@@ -498,6 +516,18 @@
         this.bumpEnemiesAbove(tiles);
         return;
       }
+      // Tijolo de várias moedas: dá moedas enquanto for batido, por alguns segundos.
+      if (item === 'coins' && !group && data) {
+        if (data.count === undefined) { data.count = 10; data.expire = this.clock + 4.5; }
+        data.count--;
+        data.bump = 0.18;
+        this.addCoin(tx * TILE, ty * TILE - 16);
+        this.particles.push({ kind: 'coin', x: tx * TILE + 4, y: ty * TILE - 14, vy: -220, life: 0.5, gravity: 600 });
+        this.bumpEnemiesAbove(tiles);
+        if (data.count <= 0 || this.clock > data.expire) { this.setTile(tx, ty, T.USED); data.item = null; }
+        return;
+      }
+      if (t === T.HIDDEN && item === 'oneup') this.findSecret('oneup');
       for (const [x, y] of tiles) {
         this.setTile(x, y, T.USED);
         const d = l.blocks[x + ',' + y] || (l.blocks[x + ',' + y] = {});
@@ -512,8 +542,82 @@
       if (kind === 'coin') {
         this.addCoin(ox, oy - 16);
         this.particles.push({ kind: 'coin', x: ox + 4, y: oy - 14, vy: -220, life: 0.5, gravity: 600 });
-      } else this.spawnItem(kind, ox, oy, dir);
+      } else if (kind === 'vine') this.spawnVine(tx, ty, origin.vineTop);
+      else if (kind === 'pswitch') this.spawnSwitch(tx, ty);
+      else this.spawnItem(kind, ox, oy, dir);
       this.bumpEnemiesAbove(tiles);
+    }
+    spawnVine(tx, ty, top) {
+      const bottom = ty * TILE;
+      this.level.vines.push({ x: tx * TILE + 4, w: 8, bottom, top: bottom, target: Number.isFinite(top) ? top : bottom - 200 });
+      this.emit('vine');
+    }
+    spawnSwitch(tx, ty) {
+      this.level.switches.push({ x: tx * TILE, y: ty * TILE - 16, w: 16, h: 16, base: ty * TILE, pressed: false, emerge: 1 });
+      this.emit('sprout');
+    }
+    vineAt(p) {
+      const l = this.level;
+      if (!l.vines || !l.vines.length) return null;
+      const cx = p.x + p.w / 2;
+      return l.vines.find(v => cx > v.x - 6 && cx < v.x + v.w + 6 && p.y + p.h > v.top + 2 && p.y < v.bottom) || null;
+    }
+    findSecret(kind) {
+      const main = this.mainLevel || this.level;
+      if (!main || !main.secrets || !main.secrets.includes(kind) || this.found.includes(kind)) return;
+      this.found.push(kind);
+      const p = this.player;
+      if (p) this.particles.push({ kind: 'text', text: 'SEGREDO!', x: p.x - 12, y: p.y - 12, vy: -24, life: 1.4 });
+      this.emit('secret', { kind, name: SECRET_NAMES[kind] });
+    }
+    // Botão P: tijolos viram moedas e moedas viram tijolos enquanto o tempo corre.
+    swapBricks(on) {
+      const l = this.mainLevel || this.level, p = this.player;
+      const keep = this.level;
+      this.level = l;
+      if (on) {
+        if (l.swapped) { this.level = keep; return; }
+        const bricks = [], coins = [];
+        for (let y = -(l.skyRows || 0); y < ROWS; y++) for (let x = 0; x < l.cols; x++) {
+          if (this.tile(x, y) !== T.BRICK) continue;
+          const d = l.blocks[x + ',' + y];
+          if (d && (d.item || d.group)) continue;
+          bricks.push([x, y]);
+        }
+        for (const c of l.coins) {
+          if (c.taken || c.fromBrick) continue;
+          const tx = Math.round((c.x - 4) / TILE), ty = Math.round((c.y - 2) / TILE);
+          if (this.tile(tx, ty) !== T.EMPTY || (keep === l && overlap(p, { x: tx * TILE, y: ty * TILE, w: TILE, h: TILE }))) continue;
+          coins.push({ c, tx, ty });
+        }
+        l.swapped = { bricks: [], coins };
+        for (const [x, y] of bricks) {
+          this.setTile(x, y, T.EMPTY);
+          const coin = { x: x * TILE + 4, y: y * TILE + 2, w: 8, h: 12, taken: false, fromBrick: true };
+          l.coins.push(coin);
+          l.swapped.bricks.push({ coin, tx: x, ty: y });
+        }
+        for (const s of coins) { s.c.taken = true; this.setTile(s.tx, s.ty, T.BRICK); }
+      } else if (l.swapped) {
+        for (const s of l.swapped.bricks) {
+          const box = { x: s.tx * TILE, y: s.ty * TILE, w: TILE, h: TILE };
+          if (!s.coin.taken && !(keep === l && overlap(p, box)) && this.tile(s.tx, s.ty) === T.EMPTY) { this.setTile(s.tx, s.ty, T.BRICK); s.coin.taken = true; }
+        }
+        l.coins = l.coins.filter(c => !(c.fromBrick && c.taken) && !(c.fromBrick && this.tile(Math.round((c.x - 4) / TILE), Math.round((c.y - 2) / TILE)) === T.BRICK));
+        for (const s of l.swapped.coins) if (this.tile(s.tx, s.ty) === T.BRICK) { this.setTile(s.tx, s.ty, T.EMPTY); s.c.taken = false; }
+        l.swapped = null;
+      }
+      this.level = keep;
+    }
+    pressSwitch(sw) {
+      sw.pressed = true;
+      sw.y = sw.base - 5;
+      sw.h = 5;
+      this.pTimer = 10;
+      this.swapBricks(true);
+      this.shake = 0.12;
+      this.emit('pswitch');
+      this.findSecret('pswitch');
     }
     spawnItem(type, x, y, dir) {
       const it = { type, x, y, w: 16, h: 16, vx: 0, vy: 0, life: 0, grounded: false, emerge: type === 'leaf' ? 0 : 1, dir };
@@ -649,7 +753,7 @@
         this.emit('tail');
         const hit = { x: p.x - 10, y: p.y + p.h - 14, w: p.w + 20, h: 12 };
         for (const e of this.level.enemies) {
-          if (e.dead || e.held || (e.type === 'piranha' && e.hidden) || !overlap(hit, e)) continue;
+          if (e.dead || e.held || e.hidden || !overlap(hit, e)) continue;
           if (e.type === 'koopa') { this.toShell(e); e.vy = -160; this.award(100, e.x, e.y); this.emit('kick'); }
           else this.defeatEnemy(e, 'tail', 100);
         }
@@ -702,14 +806,24 @@
       this.time = Math.max(0, this.time - dt / PHYS.timeUnit);
       if (this.time < 100 && !this.hurry) { this.hurry = true; this.emit('hurry'); }
       if (this.time <= 0) { this.die(); return; }
-      for (const k of ['star', 'invuln', 'flight', 'flap', 'wag', 'tail', 'attackCooldown', 'pipeCooldown', 'jumpBuffer', 'coyote']) p[k] = Math.max(0, p[k] - dt);
+      for (const k of ['star', 'invuln', 'flight', 'flap', 'wag', 'tail', 'attackCooldown', 'pipeCooldown', 'jumpBuffer', 'coyote', 'landFx', 'jumpFx', 'flapFx']) p[k] = Math.max(0, (p[k] || 0) - dt);
       if (p.star <= 0) p.starChain = 0;
+      if (this.pTimer > 0) {
+        const before = Math.ceil(this.pTimer);
+        this.pTimer = Math.max(0, this.pTimer - dt);
+        if (Math.ceil(this.pTimer) !== before && this.pTimer < 3) this.emit('tick');
+        if (this.pTimer <= 0) { this.swapBricks(false); this.emit('bump'); }
+      }
+      for (const v of l.vines) if (v.top > v.target) v.top = Math.max(v.target, v.top - 72 * dt);
+      for (const sw of l.switches) if (sw.emerge > 0) { sw.emerge = Math.max(0, sw.emerge - dt / 0.4); sw.y = sw.base - 16 * (1 - sw.emerge); }
       this.updatePlatforms(dt);
       this.updatePlayer(dt, inp, pressed);
       if (this.mode !== 'playing' || p.pipe) return;
       this.updateCannons(dt);
       this.updateItems(dt);
       this.updateEnemies(dt, inp);
+      if (this.mode !== 'playing') return;
+      this.updateHazards(dt);
       if (this.mode !== 'playing') return;
       this.updateBoss(dt);
       if (this.mode !== 'playing') return;
@@ -723,8 +837,19 @@
       this.updateCamera(dt);
     }
 
-    updatePlatforms() {
+    updatePlatforms(dt = 1 / 60) {
       for (const pl of this.level.platforms) {
+        if (pl.kind === 'fall') {
+          // Plataforma frágil: treme ao ser pisada, despenca e volta depois de um tempo.
+          pl.oldY = pl.y;
+          pl.dx = 0;
+          if (pl.state === 0 && pl.touched) { pl.state = 1; pl.t = 0; }
+          if (pl.state === 1) { pl.t += dt; if (pl.t > 0.45) { pl.state = 2; pl.vy = 0; } }
+          else if (pl.state === 2) { pl.vy = Math.min(150, pl.vy + 480 * dt); pl.y += pl.vy * dt; if (pl.y > PLAY + 40) { pl.state = 3; pl.t = 0; } }
+          else if (pl.state === 3) { pl.t += dt; if (pl.t > 2.6) { pl.state = 0; pl.y = pl.oldY = pl.baseY; pl.vy = 0; } }
+          pl.touched = false;
+          continue;
+        }
         pl.oldY = pl.y;
         const ox = pl.x;
         const wave = Math.sin(this.clock * pl.rate + pl.phase) * pl.amp;
@@ -740,6 +865,19 @@
       p.swimming = water;
       const icy = p.grounded && this.onIce(p);
       const move = inp.move;
+
+      // Pé de feijão: agarra com ↑ (ou apertando pulo no ar), sobe sozinho; ↓ desce; ←/→ ou pulo solta.
+      const vine = water ? null : this.vineAt(p);
+      if (p.climb && !vine) p.climb = false;
+      if (!p.climb && vine && !p.carry && (inp.up || (pressed('jump') && !p.grounded))) {
+        p.climb = true;
+        p.flight = 0;
+        p.jumpBuffer = 0;
+        if (p.duck) { p.y -= 12; p.h = 28; p.duck = false; }
+        this.emit('select');
+        return;
+      }
+      if (p.climb) { this.climbVine(dt, inp, pressed, vine); return; }
 
       // Agachar (só Super, Fogo e Guaxinim, como no original)
       const wantDuck = inp.down && p.grounded && p.power !== 'small' && !water;
@@ -808,11 +946,12 @@
           p.coyote = 0;
           p.jumpBuffer = 0;
           p.jumpHeld = true;
-          if (canFly && p.pm >= 7 && !p.inSand && p.flight <= 0) { p.flight = PHYS.flightTime; this.emit('fly'); }
+          p.jumpFx = 0.16;
+          if (canFly && p.pm >= 7 && !p.inSand && p.flight <= 0) { p.flight = PHYS.flightTime; this.emit('fly'); this.gust(p, 10); this.dust(p.x + p.w / 2, p.y + p.h, 6); }
           else if (p.flight > 0) this.emit('fly');
           else this.emit('jump');
         } else if (pressed('jump') && canFly && !p.grounded) {
-          if (p.flight > 0) { p.flap = 8 / 60; this.emit('tail'); }
+          if (p.flight > 0) { p.flap = 8 / 60; p.flapFx = 0.22; this.gust(p, 6); this.emit('tail'); }
           else if (p.vy > -20 && p.power === 'raccoon') { p.wag = 16 / 60; this.emit('tail'); }
           if (p.power === 'raccoon') p.tail = Math.max(p.tail, 0.12);
         }
@@ -835,8 +974,18 @@
       p.prevBottom = p.y + p.h;
       const wasAir = !p.grounded, fallSpeed = p.vy;
       const res = this.moveBody(p, dt, { player: true });
+      if (wasAir && p.grounded && fallSpeed > 100) p.landFx = 0.14;
       if (wasAir && p.grounded && fallSpeed > 160) this.dust(p.x + p.w / 2, p.y + p.h, 4);
       if (p.skidding && Math.floor(this.clock * 20) % 3 === 0) this.dust(p.x + p.w / 2 - p.facing * 6, p.y + p.h, 1);
+      this.trailFx(p, dt);
+      for (const sw of l.switches) {
+        if (sw.pressed || sw.emerge > 0 || !overlap(p, sw) || p.vy < 0 || p.prevBottom > sw.y + 6) continue;
+        p.y = sw.y - p.h;
+        p.vy = -PHYS.bounce * 0.8;
+        p.grounded = false;
+        this.pressSwitch(sw);
+      }
+      if (p.grounded && l.skyRows && p.y + p.h <= -40) this.findSecret('sky');
       if (res.hitX && p.grounded) { p.pm = 0; p.pmFill = 0; }
       if (p.flight > 0 && p.grounded && p.vy >= 0 && !inp.run) p.flight = 0;
 
@@ -849,7 +998,7 @@
         if (p.vx < 0) p.vx = 0;
       }
       if (p.x > maxX) { p.x = maxX; if (p.vx > 0) p.vx = 0; }
-      p.y = Math.max(-64, p.y);
+      p.y = Math.max(-((l.skyRows || 4) * TILE) - 32, p.y);
 
       if (p.y > PLAY + 16) { this.die(); return; }
       if (this.touching({ x: p.x + 2, y: p.y + 4, w: p.w - 4, h: p.h - 4 }, T.LAVA)) { this.die(); return; }
@@ -861,6 +1010,48 @@
         const e = p.carry;
         e.x = p.facing > 0 ? p.x + p.w - 4 : p.x - e.w + 4;
         e.y = p.y + p.h - e.h - (p.power === 'small' ? 1 : 6);
+      }
+    }
+
+    climbVine(dt, inp, pressed, v) {
+      const p = this.player;
+      const moveEdge = inp.move !== 0 && inp.move !== (this.prev.move || 0);
+      if (pressed('jump') || moveEdge) {
+        p.climb = false;
+        const dir = inp.move || p.facing;
+        p.facing = dir;
+        p.vx = dir * 80;
+        p.vy = pressed('jump') ? -PHYS.jump * 0.8 : -90;
+        p.jumpHeld = !!inp.jump;
+        p.grounded = false;
+        this.emit('jump');
+        return;
+      }
+      p.vx = 0;
+      p.x += clamp(v.x + v.w / 2 - p.w / 2 - p.x, -120 * dt, 120 * dt);
+      p.vy = inp.down ? 80 : -72;
+      p.prevBottom = p.y + p.h;
+      this.moveBody(p, dt, { player: true });
+      if (p.y + p.h < v.top + 8) { p.y = v.top + 8 - p.h; p.vy = 0; }
+      p.climbStep = (p.climbStep || 0) + (p.vy ? dt : 0);
+      if (inp.down && p.grounded) p.climb = false;
+      p.grounded = false;
+    }
+    gust(p, n) {
+      for (let i = 0; i < 2; i++) this.particles.push({ kind: 'gust', x: p.x + p.w / 2 + (i ? 5 : -5), y: p.y + p.h - 2, vx: (i ? 18 : -18), vy: 40, life: 0.32, size: n });
+    }
+    // Rastro de vento no voo e faíscas na corrida com o P cheio (só visual).
+    trailFx(p, dt) {
+      const flying = !p.grounded && (p.flight > 0 || (this.cheats.fly && !p.swimming));
+      const fast = p.grounded && p.pm >= 7 && Math.abs(p.vx) > 180;
+      if (!flying && !fast && Math.abs(p.vx) < 200) { p.fxClock = 0; return; }
+      p.fxClock += dt;
+      const step = flying ? 0.03 : 0.07;
+      while (p.fxClock > step) {
+        p.fxClock -= step;
+        const r = hash(this.clock * 61 + this.particles.length);
+        if (flying || Math.abs(p.vx) >= 200 && !p.grounded) this.particles.push({ kind: 'streak', x: p.x + p.w / 2 - p.facing * 10, y: p.y + 3 + r * (p.h - 6), vx: -p.facing * 50 + p.vx * 0.25, vy: p.vy * 0.15, life: 0.26, dir: p.facing });
+        else this.particles.push({ kind: 'dust', x: p.x + p.w / 2 - p.facing * 6, y: p.y + p.h, vx: -p.facing * 40, vy: -20 - r * 20, life: 0.25 });
       }
     }
 
@@ -910,12 +1101,14 @@
         main.bonusRoom = main.bonusRoom || createBonusRoom(main);
         this.level = main.bonusRoom;
         exit = this.level.spawnPipe;
+        this.findSecret('bonus');
       } else if (target.type === 'return') {
         this.level = main;
         exit = main.secretExit;
       } else exit = { x: target.x, top: target.top };
       this.projectiles = [];
       this.camera = clamp(exit.x - W * 0.4, 0, Math.max(0, this.level.width - W));
+      this.cameraY = 0;
       return exit;
     }
 
@@ -926,6 +1119,7 @@
 
     updateCamera(dt, instant = false) {
       const l = this.level, p = this.player;
+      this.updateCameraY(dt, instant);
       const maxCam = Math.max(0, l.width - W);
       if (l.autoscroll && !l.bonus) {
         this.camera = Math.min(maxCam, this.camera + l.autoscroll * dt);
@@ -937,6 +1131,18 @@
       this.camera = instant ? cam : cam;
     }
 
+    // Câmera vertical: sobe quando o Mario voa ou escala para o céu acima da tela.
+    updateCameraY(dt, instant = false) {
+      const l = this.level, p = this.player;
+      if (!l.skyRows || !p) { this.cameraY = 0; return; }
+      const top = -l.skyRows * TILE;
+      const target = clamp(p.y - 56, top, 0);
+      if (instant) this.cameraY = target;
+      else this.cameraY += (target - this.cameraY) * Math.min(1, dt * 7);
+      const lo = Math.min(0, Math.max(top, p.y + p.h - PLAY + 12)), hi = Math.min(0, Math.max(top, p.y - 12));
+      this.cameraY = clamp(this.cameraY, lo, Math.max(lo, hi));
+    }
+
     updateCannons(dt) {
       const p = this.player, l = this.level;
       for (const c of l.cannons) {
@@ -945,11 +1151,12 @@
         if (this.tile(c.tx, c.ty) !== T.CANNON) continue;
         c.timer -= dt;
         if (c.timer > 0) continue;
-        c.timer = 3.2;
+        c.timer = l.cannonDelay || 3.2;
         const pc = p.x + p.w / 2;
         if (Math.abs(pc - cx) < 40) continue;
         const dir = pc < cx ? -1 : 1;
-        const e = { id: l.enemies.length + 1000, type: 'bullet', x: dir < 0 ? c.tx * TILE - 16 : c.tx * TILE + 16, y: c.ty * TILE + 1, w: 16, h: 14, vx: dir * 66, vy: 0, dir, dead: false, active: true, timer: 0, grace: 0, chain: 0 };
+        const e = { id: l.enemies.length + 1000, type: 'bullet', x: dir < 0 ? c.tx * TILE - 16 : c.tx * TILE + 16, y: c.ty * TILE + 1, w: 16, h: 14, vx: dir * (l.bulletSpeed || 66), vy: 0, dir, dead: false, active: true, timer: 0, grace: 0, chain: 0 };
+        this.puff(c.tx * TILE + (dir < 0 ? -6 : 10), c.ty * TILE + 2);
         l.enemies.push(e);
         this.emit('cannon');
       }
@@ -1007,10 +1214,17 @@
         switch (e.type) {
           case 'goomba':
           case 'koopa': {
-            e.vx = e.dir * (e.type === 'koopa' ? 32 : 30);
+            e.vx = e.dir * (e.type === 'koopa' ? 32 : 30) * (l.enemySpeed || 1);
             e.vy = Math.min(PHYS.maxFall, e.vy + PHYS.gravity * dt);
             const r = this.moveBody(e, dt);
             if (r.hitX) e.dir = -e.dir;
+            else if (e.smart && e.grounded) {
+              // não cai da beirada: olha o chão logo à frente
+              const fx = e.dir > 0 ? e.x + e.w + 1 : e.x - 1, fy = e.y + e.h + 2;
+              const t = this.tile(Math.floor(fx / TILE), Math.floor(fy / TILE));
+              const onLift = l.platforms.some(q => q.state !== 3 && Math.abs(q.y - (e.y + e.h)) < 2 && fx > q.x && fx < q.x + q.w);
+              if (!isSolid(t) && !isOneWay(t) && !onLift) e.dir = -e.dir;
+            }
             walkers.push(e);
             break;
           }
@@ -1025,7 +1239,7 @@
             } else {
               e.shellTime = 0;
               for (const o of l.enemies) {
-                if (o === e || o.dead || o.held || (o.type === 'piranha' && o.hidden) || !overlap(e, o)) continue;
+                if (o === e || o.dead || o.held || o.hidden || !overlap(e, o)) continue;
                 this.defeatEnemy(o, 'shell', this.chainPoints(e, 'chain'));
               }
             }
@@ -1040,15 +1254,40 @@
             e.y = e.baseY - out * e.h;
             e.hidden = out < 0.2;
             e.hb = { x: e.x + 2, y: e.y + 2, w: 12, h: Math.max(0, e.baseY - e.y - 2) };
-            if (e.hidden) continue;
+            if (e.hidden) { e.shot = 0; continue; }
+            // Planta de fogo: cospe uma bola na direção do Mario quando está toda para fora.
+            if (e.fire && out >= 1 && (e.shot || 0) < (l.diff > 0.6 ? 2 : 1) && t > 2.3 + (e.shot || 0) * 0.5) {
+              e.shot = (e.shot || 0) + 1;
+              const sx = e.x + e.w / 2, sy = e.y + 6;
+              const dx = p.x + p.w / 2 - sx, dy = p.y + p.h / 2 - sy, len = Math.hypot(dx, dy) || 1;
+              const sp = 70 + 40 * (l.diff || 0);
+              this.projectiles.push({ kind: 'spit', x: sx - 4, y: sy - 4, w: 8, h: 8, vx: (dx / len) * sp, vy: (dy / len) * sp, life: 4.5 });
+              this.emit('fire');
+            }
             break;
           }
           case 'fish':
+            if (e.jumper) {
+              // salta do fundo do buraco em arco, de um lado ao outro
+              const vy0 = Math.sqrt(2 * FISH_G * e.peak), air = (2 * vy0) / FISH_G;
+              const tt = (e.timer + e.phase) % e.period;
+              if (tt > air) { e.hidden = true; e.y = PLAY + 24; continue; }
+              e.hidden = false;
+              e.x = e.x0 + e.dirJ * (e.span + 16) * (tt / air);
+              e.y = PLAY + 24 - (vy0 * tt - (FISH_G * tt * tt) / 2);
+              e.vx = e.dirJ * 60;
+              e.vyJ = vy0 - FISH_G * tt;
+              this.enemyVsPlayer(e, inp);
+              if (this.mode !== 'playing') return;
+              continue;
+            }
             e.x += e.vx * dt;
+            if (e.chase && Math.abs(p.x - e.x) < 160) e.baseY = clamp(e.baseY + clamp(p.y - e.baseY, -30 * dt, 30 * dt), (l.water ? l.water.top : 0) + 24, PLAY - 52);
             e.y = e.baseY + Math.sin(e.timer * 1.6 + (e.phase || 0)) * 18;
             break;
           case 'bullet':
             e.x += e.vx * dt;
+            if (Math.floor(e.timer * 12) !== Math.floor((e.timer - dt) * 12)) this.particles.push({ kind: 'dust', x: e.x + (e.vx > 0 ? 0 : e.w), y: e.y + 9, vx: -Math.sign(e.vx) * 10, vy: -6, life: 0.3 });
             break;
           default:
             break;
@@ -1086,7 +1325,7 @@
       const box = e.type === 'piranha' ? e.hb : e;
       if (!box || box.h <= 0 || !overlap(p, box) || e.grace > 0) return;
       if (p.star > 0) { this.defeatEnemy(e, 'star', this.chainPoints(p, 'starChain')); return; }
-      const stompable = !['piranha', 'fish'].includes(e.type) && !this.inWater(p);
+      const stompable = (!['piranha', 'fish'].includes(e.type) || e.jumper) && !this.inWater(p);
       const stomp = stompable && p.vy > 0 && p.prevBottom <= e.y + 6 + (e.giant ? 6 : 0);
       if (stomp) {
         p.y = e.y - p.h;
@@ -1107,6 +1346,81 @@
         return;
       }
       this.damage();
+    }
+
+    /* ------------------------- Perigos da fase ------------------------- */
+    bubbleState(b, clock = this.clock) {
+      const vy0 = Math.sqrt(2 * BUBBLE_G * b.height), air = (2 * vy0) / BUBBLE_G;
+      const tt = (clock + b.phase) % b.period;
+      if (tt > air) return null;
+      return { x: b.x, y: b.surface - (vy0 * tt - (BUBBLE_G * tt * tt) / 2), w: b.w, h: b.h, up: tt < air / 2 };
+    }
+    burnerState(q, clock = this.clock) {
+      const tt = (clock + q.phase) % q.period;
+      const warm = q.period - 0.35;
+      if (tt < q.on) return { on: true, k: Math.min(1, tt / 0.15, (q.on - tt) / 0.15) };
+      return { on: false, warm: tt > warm };
+    }
+    firebarBalls(f, clock = this.clock) {
+      const a = f.phase + clock * f.speed, out = [];
+      for (let i = 0; i < f.n; i++) out.push({ x: f.x + Math.cos(a) * i * 8, y: f.y + Math.sin(a) * i * 8 });
+      return out;
+    }
+    updateHazards(dt) {
+      const l = this.level, p = this.player;
+      const hb = { x: p.x + 2, y: p.y + 3, w: p.w - 4, h: p.h - 5 };
+      const near = (x, r) => x > this.camera - r && x < this.camera + W + r;
+      for (const f of l.firebars) {
+        if (!near(f.x, 80)) continue;
+        if (Math.abs(p.x + p.w / 2 - f.x) > f.n * 8 + 16 || Math.abs(p.y + p.h / 2 - f.y) > f.n * 8 + 22) continue;
+        for (const ball of this.firebarBalls(f)) {
+          const nx = clamp(ball.x, hb.x, hb.x + hb.w), ny = clamp(ball.y, hb.y, hb.y + hb.h);
+          if ((ball.x - nx) ** 2 + (ball.y - ny) ** 2 < 12) { this.damage(); break; }
+        }
+        if (this.mode !== 'playing') return;
+      }
+      for (const b of l.bubbles) {
+        if (!near(b.x, 40)) continue;
+        const st = this.bubbleState(b);
+        if (st && overlap(hb, st)) this.damage();
+        if (this.mode !== 'playing') return;
+      }
+      for (const q of l.burners) {
+        if (!near(q.tx * TILE, 40)) continue;
+        const st = this.burnerState(q);
+        if (st.on && overlap(hb, { x: q.tx * TILE + 3, y: q.ty * TILE - 44 * st.k, w: 10, h: 44 * st.k })) this.damage();
+        if (this.mode !== 'playing') return;
+      }
+      for (const c of l.crushers) {
+        if (!near(c.x, 80)) { c.state = 'wait'; c.y = c.baseY; continue; }
+        const pc = p.x + p.w / 2;
+        if (c.state === 'wait') {
+          c.timer -= dt;
+          if (c.timer <= 0 && pc > c.x - 22 && pc < c.x + c.w + 22 && p.y > c.y) { c.state = 'fall'; c.vy = 0; }
+        } else if (c.state === 'fall') {
+          c.vy = Math.min(420, c.vy + 1500 * dt);
+          c.y += c.vy * dt;
+          const row = Math.floor((c.y + c.h) / TILE);
+          let hit = c.y > PLAY;
+          for (let x = Math.floor(c.x / TILE); x <= Math.floor((c.x + c.w - 1) / TILE); x++) if (isSolid(this.tile(x, row))) hit = true;
+          if (hit) {
+            c.y = Math.min(c.y, row * TILE - c.h);
+            c.state = 'ground';
+            c.timer = 0.9;
+            this.shake = Math.max(this.shake, 0.15);
+            this.dust(c.x + c.w / 2, c.y + c.h, 6);
+            this.emit('crush');
+          }
+        } else if (c.state === 'ground') {
+          c.timer -= dt;
+          if (c.timer <= 0) c.state = 'rise';
+        } else {
+          c.y = Math.max(c.baseY, c.y - 55 * dt);
+          if (c.y <= c.baseY) { c.state = 'wait'; c.timer = 0.5; }
+        }
+        if (overlap(hb, c)) this.damage();
+        if (this.mode !== 'playing') return;
+      }
     }
 
     hurtBoss(amount) {
@@ -1148,11 +1462,11 @@
       const left = l.arenaStart + 8, right = l.width - b.w - 8;
       if (b.type === 'bowser') this.updateBowser(dt, b, left, right);
       else {
-        const speed = 55 + (b.hits || 0) * 25;
+        const speed = 55 + this.world * 6 + (b.hits || 0) * 25;
         if (b.invuln > 0.5) b.vx = 0;
         else if (b.grounded) {
           b.vx = b.facing * speed;
-          if (b.timer <= 0) { b.vy = -300; b.timer = 1.4 + ((b.hits || 0) % 2) * 0.4; this.emit('jump'); }
+          if (b.timer <= 0) { b.vy = -300 - this.world * 8; b.timer = 1.4 - this.world * 0.07 + ((b.hits || 0) % 2) * 0.4; this.emit('jump'); }
         }
         b.vy = Math.min(PHYS.maxFall, b.vy + PHYS.gravity * dt);
         this.moveBody(b, dt);
@@ -1229,7 +1543,7 @@
           if (a.straight && hit.hitY) a.life = 0;
           if (a.grounded) a.vy = -170;
           for (const e of l.enemies) {
-            if (e.dead || e.held || (e.type === 'bullet' && !a.mega) || (e.type === 'piranha' && e.hidden)) continue;
+            if (e.dead || e.held || (e.type === 'bullet' && !a.mega) || e.hidden) continue;
             const box = e.type === 'piranha' ? e.hb : e;
             if (box && overlap(a, box)) { this.defeatEnemy(e, 'fire', 100); if (!a.pierce) { a.life = 0; break; } }
           }
@@ -1274,7 +1588,9 @@
       this.savedPower = p.power;
       if (!this.completed.includes(stage)) this.completed.push(stage);
       this.highest = Math.max(this.highest, Math.min(47, stage + 1));
-      this.ending = { kind, card, timer: 0, total: kind === 'bowser' ? 5 : 4, tallyRate: Math.max(60, this.time / 1.6), bonus: null };
+      const secrets = (this.mainLevel || l).secrets || [];
+      this.ending = { kind, card, timer: 0, total: kind === 'bowser' ? 5 : 4, tallyRate: Math.max(60, this.time / 1.6), bonus: null, secrets: { found: this.found.length, total: secrets.length } };
+      if (this.pTimer > 0) { this.pTimer = 0; this.swapBricks(false); }
       const slot = stage % 6;
       this.emit(kind === 'bowser' ? 'victory' : slot === 5 ? 'worldClear' : 'clear');
     }
@@ -1458,13 +1774,14 @@
     // Estado mínimo para busca automática nos testes de jogabilidade.
     snapshot() {
       return {
-        player: { ...this.player, carry: null, pipe: null }, camera: this.camera, clock: this.clock, time: this.time,
+        player: { ...this.player, carry: null, pipe: null }, camera: this.camera, cameraY: this.cameraY, clock: this.clock, time: this.time,
         mode: this.mode, prev: { ...this.prev }, freeze: this.freeze, platforms: this.level.platforms.map(p => ({ ...p }))
       };
     }
     restore(s) {
       this.player = { ...s.player };
       this.camera = s.camera;
+      this.cameraY = s.cameraY || 0;
       this.clock = s.clock;
       this.time = s.time;
       this.mode = s.mode;

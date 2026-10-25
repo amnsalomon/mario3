@@ -17,6 +17,14 @@
     default: ['#c8f59a', '#6fc24f', '#2f7a34']
   };
 
+  // Bloco em qualquer linha, incluindo o céu acima da tela (y negativo).
+  const tileAt = (l, x, y) => {
+    if (x < 0 || x >= l.cols || y >= 14) return 0;
+    if (y >= 0) return l.tiles[y][x];
+    const r = l.sky && l.sky[y + (l.skyRows || 0)];
+    return r ? r[x] : 0;
+  };
+
   // Contexto "de mentira" usado quando não há canvas fora da tela (testes em Node):
   // mantém só os retângulos, com deslocamento, e ignora o resto.
   function fallbackContext(base, ox, oy) {
@@ -123,7 +131,17 @@
       const shake = g.shake > 0 && this.c.save ? (Math.random() - 0.5) * 4 * Math.min(1, g.shake * 4) : 0;
       if (shake && this.c.save) { this.c.save(); this.c.translate(shake, shake * 0.6); }
       const cam = Math.round(g.camera * this.scale) / this.scale;
-      this.scenery.draw(l, cam, t);
+      const camY = l.skyRows ? Math.round((g.cameraY || 0) * this.scale) / this.scale : 0;
+      this.scenery.draw(l, cam, t, camY);
+      const c = this.c, vertical = !!l.skyRows && typeof c.save === 'function';
+      if (vertical) {
+        c.save();
+        c.beginPath();
+        c.rect(0, 0, W, PH);
+        c.clip();
+        c.translate(0, -camY);
+      }
+      this.camY = camY;
       const x0 = Math.max(0, Math.floor(cam / TILE) - 1), x1 = Math.min(l.cols, Math.ceil((cam + W) / TILE) + 1);
       const boxTiles = new Set();
       for (const box of l.boxes) {
@@ -134,12 +152,25 @@
       // Atrás dos blocos e canos: piranhas, itens nascendo e o Mario dentro do cano.
       for (const e of l.enemies) {
         if (e.type !== 'piranha' || e.dead || e.hidden) continue;
-        this.sprite('piranha', e.x - cam, e.y, { frame: Math.floor(t * 4) % 2 });
+        if (e.fire) this.blit('fireGlow', 24, 24, e.x - cam - 4, e.y - 6, gg => HD.glow(gg, 12, 'rgba(255,150,60,0.5)', 'rgba(255,90,30,0)'));
+        const rot = Math.sin(t * 3 + e.id) * 0.09;
+        this.transformed(e.x - cam + 8, e.baseY, 8, e.baseY - e.y, rot, 1, 1, ox => this.sprite('piranha', ox, -(e.baseY - e.y), { frame: Math.floor(t * 4) % 2 }), true);
       }
       for (const it of l.items) if (it.emerge > 0) this.sprite(it.type, it.x - cam, it.y, { frame: Math.floor(t * 8) % 2 });
       if (p && p.pipe) this.player(g, t, cam);
-      this.tiles(l, cam, t, x0, x1, boxTiles);
-      for (const pl of l.platforms) for (let x = 0; x < pl.w; x += 16) this.blit('lift', 16, 8, pl.x - cam + x, pl.y, HD.lift);
+      for (const sw of l.switches || []) if (sw.emerge > 0) this.blit('pswitch', 16, 16, sw.x - cam, sw.y, gg => HD.pswitch(gg, false));
+      this.vines(l, cam, t);
+      this.tiles(l, cam, t, x0, x1, boxTiles, camY);
+      for (const sw of l.switches || []) if (!sw.emerge) this.blit('pswitch' + (sw.pressed ? 'P' : ''), 16, 16, sw.x - cam, sw.base - 16, gg => HD.pswitch(gg, sw.pressed));
+      for (const pl of l.platforms) {
+        if (pl.kind === 'fall') {
+          if (pl.state === 3) continue;
+          const jx = pl.state === 1 ? Math.sin(t * 90) * 0.8 : 0;
+          this.blit('fragile', 32, 8, pl.x - cam + jx, pl.y, HD.fragile, pl.w, 8);
+          continue;
+        }
+        for (let x = 0; x < pl.w; x += 16) this.blit('lift', 16, 8, pl.x - cam + x, pl.y, HD.lift);
+      }
       const coinFrame = Math.floor(t * 10) % 8;
       for (const c of l.coins) {
         if (c.taken || c.x - cam < -16 || c.x - cam > W + 16) continue;
@@ -148,17 +179,25 @@
       // sombras suaves no chão
       if (p && !p.pipe && g.mode !== 'dying') this.shadowUnder(l, p, cam);
       for (const e of l.enemies) if (!e.dead && e.type !== 'piranha' && e.type !== 'bullet' && e.type !== 'fish' && e.x - cam > -40 && e.x - cam < W + 40) this.shadowUnder(l, e, cam);
-      for (const it of l.items) if (!it.emerge) this.sprite(it.type, it.x - cam, it.y, { frame: Math.floor(t * 8) % 2 });
+      for (const it of l.items) {
+        if (it.emerge) continue;
+        const rot = it.type === 'leaf' ? Math.sin(it.life * 3.2) * 0.4 : it.type === 'star' ? Math.sin(t * 9) * 0.15 : 0;
+        const ky = it.type === 'star' && it.grounded ? 0.85 : 1;
+        this.transformed(it.x - cam + 8, it.y + 16, 8, 16, rot, 1 / ky > 1 ? 1.08 : 1, ky, ox => this.sprite(it.type, ox, -16, { frame: Math.floor(t * 8) % 2 }), rot !== 0);
+      }
       for (const e of l.enemies) if (e.type !== 'piranha') this.enemy(e, cam, t);
       if (l.boss) this.boss(l.boss, cam, t, g);
       if (l.orb) this.blit('orb' + (Math.floor(t * 6) % 2), 16, 16, l.orb.x - cam, l.orb.y, gg => HD.orb(gg, Math.floor(t * 6) % 2));
       if (l.goal) this.goal(g, l, cam, t);
+      this.hazards(g, l, cam, t);
       for (const a of g.projectiles) {
         if (a.kind === 'fire') {
           const r = a.mega ? 12 : 8;
           this.blit('fireball' + (a.mega ? 'M' : ''), 16, 16, a.x + a.w / 2 - cam - r, a.y + a.h / 2 - r, gg => HD.fireball(gg, a.mega), r * 2, r * 2);
         } else if (a.kind === 'flame') {
           this.blit('flameHD', 24, 8, a.x - cam, a.y, HD.flame);
+        } else if (a.kind === 'spit') {
+          this.blit('fireball', 16, 16, a.x + a.w / 2 - cam - 6, a.y + a.h / 2 - 6, gg => HD.fireball(gg, false), 12, 12);
         } else this.rect(a.x - cam, a.y, a.w, a.h, '#f6cf5c');
       }
       if (p && !p.pipe) this.player(g, t, cam);
@@ -166,21 +205,25 @@
       if (l.water) this.waterOverlay(l, cam, t);
       if (l.endX && l.endX - cam < W) {
         const ex = Math.max(0, l.endX - cam);
-        this.blit('endFade', 48, PH, ex - 48, 0, gg => {
+        this.blit('endFade', 48, PH, ex - 48, camY, gg => {
           gg.fillStyle = HD.lin(gg, 0, 0, 48, 0, [[0, 'rgba(6,10,20,0)'], [1, 'rgba(6,10,20,0.94)']]);
           gg.fillRect(0, 0, 48, PH);
         });
-        this.rect(ex, 0, W - ex, PH, 'rgba(6,10,20,0.94)');
+        this.rect(ex, camY, W - ex, PH, 'rgba(6,10,20,0.94)');
       }
+      if (vertical) c.restore();
+      this.camY = 0;
+      if (g.pTimer > 0 && g.mode !== 'title') this.pswitchBar(g, t);
       if (shake && this.c.save) this.c.restore();
       if (g.ending && g.mode !== 'title') this.endingBanner(g, t);
     }
 
-    tiles(l, cam, t, x0, x1, boxTiles) {
+    tiles(l, cam, t, x0, x1, boxTiles, camY = 0) {
       const parts = { 6: 'top-left', 7: 'top-right', 8: 'body-left', 9: 'body-right' };
       const lavaFrame = Math.floor(t * 8) % 8, sandFrame = Math.floor(t * 3) % 8;
-      for (let y = 0; y < 14; y++) for (let x = x0; x < x1; x++) {
-        const tile = l.tiles[y][x];
+      const y0 = Math.max(-(l.skyRows || 0), Math.floor(camY / TILE)), y1 = Math.min(14, Math.ceil((camY + PH) / TILE) + 1);
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const tile = tileAt(l, x, y);
         if (!tile || tile === T.HIDDEN || tile === T.SEMI_BODY) continue;
         const sx = x * TILE - cam, sy = y * TILE;
         const data = l.blocks[x + ',' + y];
@@ -205,23 +248,90 @@
           case T.SAND: this.blit('sand' + sandFrame, 16, 16, sx, sy, gg => HD.sand(gg, sandFrame)); break;
           case T.LAVA:
             this.blit('lava' + lavaFrame, 16, 16, sx, sy, gg => HD.lava(gg, lavaFrame));
-            if (!l.tiles[y - 1] || l.tiles[y - 1][x] !== T.LAVA) this.blit('lavaGlow', 16, 24, sx, sy - 22, gg => {
+            if (tileAt(l, x, y - 1) !== T.LAVA) this.blit('lavaGlow', 16, 24, sx, sy - 22, gg => {
               gg.fillStyle = HD.lin(gg, 0, 0, 0, 24, [[0, 'rgba(255,120,40,0)'], [1, 'rgba(255,140,50,0.45)']]);
               gg.fillRect(0, 0, 16, 24);
             });
             break;
           case T.SPIKE: {
-            const hanging = l.tiles[y - 1] && MarioCore.isSolid(l.tiles[y - 1][x]) && !(l.tiles[y + 1] && MarioCore.isSolid(l.tiles[y + 1][x]));
+            const hanging = MarioCore.isSolid(tileAt(l, x, y - 1)) && !MarioCore.isSolid(tileAt(l, x, y + 1));
             this.blit('spike' + (hanging ? 'D' : ''), 16, 16, sx, sy, gg => { if (hanging) { gg.translate(0, 16); gg.scale(1, -1); } HD.spike(gg); });
             break;
           }
           case T.CANNON: this.blit('cannon', 16, 16, sx, sy, HD.cannon); break;
           case T.CANNON_BASE: this.blit('cannonBase', 16, 16, sx, sy, HD.cannonBase); break;
+          case T.BURNER: this.blit('burner', 16, 16, sx, sy, HD.burner); break;
           default:
             if (tile >= 6 && tile <= 9) this.blit('pipe' + tile, 16, 16, sx, sy, gg => HD.pipe(gg, parts[tile]));
         }
         if (l.theme === 'tank' && tile === T.STONE && y === 11) this.wheel(sx, sy, t);
       }
+    }
+
+    vines(l, cam, t) {
+      for (const v of l.vines || []) {
+        const x = v.x + v.w / 2 - 8 - cam;
+        if (x < -20 || x > W + 4) continue;
+        const h = v.bottom - v.top;
+        if (h <= 0) continue;
+        const sway = Math.sin(t * 2.2) * 0.6;
+        for (let y = v.bottom - 16, i = 0; y > v.top - 1; y -= 16, i++) {
+          const top = y <= v.top + 0.5;
+          const yy = Math.max(v.top, y);
+          if (top || y - 16 < v.top) this.blit('vineTop', 16, 16, x + sway, v.top, HD.vineTop);
+          else this.blit('vine' + (i % 2), 16, 16, x + sway * (i % 2 ? 1 : -1) * 0.5, yy, gg => HD.vine(gg, i % 2));
+          if (top) break;
+        }
+      }
+    }
+
+    hazards(g, l, cam, t) {
+      const seen = x => x > cam - 64 && x < cam + W + 64;
+      for (const f of l.firebars || []) {
+        if (!seen(f.x)) continue;
+        const balls = g.firebarBalls(f, g.clock);
+        for (let i = 0; i < balls.length; i++) {
+          const b = balls[i], r = i === 0 ? 4.5 : 5.5;
+          this.blit('fireball', 16, 16, b.x - cam - r, b.y - r, gg => HD.fireball(gg, false), r * 2, r * 2);
+        }
+      }
+      for (const b of l.bubbles || []) {
+        if (!seen(b.x)) continue;
+        const st = g.bubbleState(b, g.clock);
+        if (!st) continue;
+        const key = 'bubble' + (st.up ? '' : 'D');
+        this.blit(key, 14, 16, st.x - cam, st.y, gg => { if (!st.up) { gg.translate(0, 16); gg.scale(1, -1); } HD.lavaBubble(gg); });
+        if (st.up && Math.floor(t * 20) % 2) this.blit('sparkle', 8, 8, st.x - cam + 3, st.y + 14, HD.sparkle, 5, 5);
+      }
+      const ff = Math.floor(t * 16) % 4;
+      for (const q of l.burners || []) {
+        const x = q.tx * TILE - cam;
+        if (x < -20 || x > W + 20) continue;
+        const st = g.burnerState(q, g.clock);
+        if (st.on) {
+          const h = 46 * st.k;
+          this.blit('burnGlow', 24, 24, x - 4, q.ty * TILE - h * 0.6 - 12, gg => HD.glow(gg, 12, 'rgba(255,170,80,0.45)', 'rgba(255,120,40,0)'), 24, 24);
+          this.blit('burnFlame' + ff, 12, 48, x + 2, q.ty * TILE - h, gg => HD.burnFlame(gg, ff), 12, h);
+        } else if (st.warm && Math.floor(t * 24) % 2) {
+          this.blit('puff', 8, 8, x + 4, q.ty * TILE - 8, HD.puff, 8, 8);
+        }
+      }
+      for (const c of l.crushers || []) {
+        const x = c.x - cam;
+        if (x < -40 || x > W + 8) continue;
+        const jx = c.state === 'wait' && c.timer <= 0 && Math.abs(g.player.x + g.player.w / 2 - (c.x + 16)) < 70 ? Math.sin(t * 60) * 0.6 : 0;
+        this.rect(x + jx + 15, c.baseY - 32, 2, Math.max(0, c.y - c.baseY + 32), 'rgba(40,40,50,0.6)');
+        this.blit('crusher', 32, 32, x + jx, c.y, HD.crusher);
+      }
+    }
+
+    pswitchBar(g, t) {
+      const k = Math.min(1, g.pTimer / 10), w = 120, x = (W - w) / 2, y = 6;
+      this.panel(x - 30, y - 2, w + 60, 14, 0.8);
+      this.blit('pswitchIcon', 16, 16, x - 26, y - 1, gg => HD.pswitch(gg, false), 12, 12);
+      this.rect(x, y + 3, w, 5, 'rgba(255,255,255,0.18)');
+      this.rect(x, y + 3, w * k, 5, g.pTimer < 3 && Math.floor(t * 8) % 2 ? '#ffe27a' : '#5fd8f5');
+      this.text(String(Math.ceil(g.pTimer)), x + w + 8, y + 1, '#fff', 8, 'left', 900);
     }
 
     wheel(x, y, t) {
@@ -246,7 +356,7 @@
       const cx = b.x + b.w / 2, foot = b.y + b.h;
       let gy = -1;
       for (let ty = Math.floor(foot / TILE); ty < Math.min(14, Math.floor(foot / TILE) + 6); ty++) {
-        const t0 = l.tiles[ty] && l.tiles[ty][Math.floor(cx / TILE)];
+        const t0 = tileAt(l, Math.floor(cx / TILE), ty);
         if (t0 && (MarioCore.isSolid(t0) || MarioCore.isOneWay(t0))) { gy = ty * TILE; break; }
       }
       if (gy < 0) return;
@@ -263,6 +373,19 @@
       else if (a.kind === 'puff') { const s = 6 + (0.45 - Math.min(0.45, a.life)) * 14; this.blit('puff', 8, 8, x - s / 2 + 3, a.y - s / 2 + 3, HD.puff, s, s); }
       else if (a.kind === 'dust') { const s = 4 + (0.35 - Math.min(0.35, a.life)) * 18; this.blit('dust', 6, 6, x - s / 2, a.y - s / 2, HD.dust, s, s); }
       else if (a.kind === 'sparkle') this.blit('sparkle', 8, 8, x - 4, a.y - 4, HD.sparkle);
+      else if (a.kind === 'streak') {
+        const k = Math.min(1, a.life / 0.26), len = 10 + 10 * k;
+        const c = this.c;
+        if (c.save) { c.save(); c.globalAlpha = 0.25 + 0.6 * k; }
+        this.blit('streak' + (a.dir < 0 ? 'L' : ''), 16, 2, a.dir < 0 ? x : x - len, a.y, gg => { if (a.dir < 0) { gg.translate(16, 0); gg.scale(-1, 1); } HD.streak(gg); }, len, 1.6);
+        if (c.save) c.restore();
+      } else if (a.kind === 'gust') {
+        const k = 1 - Math.min(1, a.life / 0.32), s = (a.size || 8) * (0.8 + k * 1.4);
+        const c = this.c;
+        if (c.save) { c.save(); c.globalAlpha = 1 - k; }
+        this.blit('gust', 16, 6, x - s / 2, a.y, HD.gust, s, s * 0.38);
+        if (c.save) c.restore();
+      }
       else this.blit('debris', 5, 5, x, a.y, HD.debris);
     }
 
@@ -301,8 +424,37 @@
         return;
       }
       if (e.type === 'bullet') { this.sprite('bullet', sx, sy, { facing: e.vx > 0 ? -1 : 1, flipY: e.dead }); return; }
+      if (e.hidden) return;
       const facing = e.type === 'fish' ? (e.vx < 0 ? 1 : -1) : (e.vx || e.dir) < 0 ? -1 : 1;
-      this.sprite(e.type, sx, sy, { frame: e.type === 'shell' ? 0 : frame, facing, scale, flipY: e.dead });
+      const opts = { frame: e.type === 'shell' ? 0 : frame, facing, scale, flipY: e.dead };
+      // Animação: balanço ao andar, giro do casco, peixe inclinado no salto.
+      let rot = 0, kx = 1, ky = 1, dy = 0;
+      if (!e.dead && !e.held) {
+        if (e.type === 'goomba' || e.type === 'koopa') { rot = (frame ? 1 : -1) * 0.07; dy = -Math.abs(Math.sin(t * 12 + e.id)) * 0.8; }
+        else if (e.type === 'shell' && Math.abs(e.vx) > 1) kx = 0.55 + 0.45 * Math.abs(Math.cos(t * 26));
+        else if (e.type === 'fish') rot = e.jumper ? Math.atan2(-(e.vyJ || 0), Math.abs(e.vx) * 4) * (e.vx < 0 ? 1 : -1) * 0.9 : Math.sin(t * 5 + e.id) * 0.12;
+      }
+      this.transformed(sx + (dim.w * scale) / 2, sy + dim.h * scale + dy, (dim.w * scale) / 2, dim.h * scale, rot, kx, ky, ox => this.sprite(e.type, ox, -dim.h * scale, opts), rot !== 0);
+    }
+
+    // Desenha com giro/escala ao redor do pé (cx, foot). Sem save/restore cai no desenho simples.
+    transformed(cx, foot, halfW, h, rot, kx, ky, draw, smooth = false) {
+      const c = this.c;
+      if ((rot === 0 && kx === 1 && ky === 1) || typeof c.save !== 'function') {
+        c.save && c.save();
+        if (c.translate) c.translate(cx, foot);
+        draw(-halfW);
+        c.restore && c.restore();
+        return;
+      }
+      c.save();
+      c.translate(cx, foot);
+      if (kx !== 1 || ky !== 1) c.scale(kx, ky);
+      if (rot) { c.translate(0, -h / 2); c.rotate(rot); c.translate(0, h / 2); }
+      if (smooth) c.imageSmoothingEnabled = true;
+      draw(-halfW);
+      if (smooth) c.imageSmoothingEnabled = false;
+      c.restore();
     }
 
     boss(b, cam, t, g) {
@@ -364,26 +516,69 @@
         this.rect(cx + 76, 76, 22, 22, '#f9efd5');
         this.sprite(e.card, cx + 79, 79);
       }
+      if (e.secrets && e.secrets.total) {
+        const y = e.card ? 114 : 88;
+        this.panel(cx - 70, y, 140, 18, 0.8);
+        this.text(`SEGREDOS ${e.secrets.found}/${e.secrets.total}`, cx, y + 5, e.secrets.found === e.secrets.total ? '#9df07a' : '#cfe0ff', 8, 'center', 900);
+      }
       if (e.bonus) {
-        this.panel(cx - 116, 118, 232, 24);
-        this.text(`${e.bonus.lives} VIDA${e.bonus.lives > 1 ? 'S' : ''} EXTRA!`, cx, 125, '#9df07a', 9, 'center', 900);
+        this.panel(cx - 116, 138, 232, 24);
+        this.text(`${e.bonus.lives} VIDA${e.bonus.lives > 1 ? 'S' : ''} EXTRA!`, cx, 145, '#9df07a', 9, 'center', 900);
       }
     }
 
     player(g, t, cam) {
       const p = g.player;
       if (!p) return;
-      if (p.invuln > 0 && Math.floor(t * 16) % 2) return;
-      if (g.freeze > 0 && Math.floor(t * 20) % 2) return;
+      const blink = (p.invuln > 0 && Math.floor(t * 16) % 2) || (g.freeze > 0 && Math.floor(t * 20) % 2);
       let state = 'idle';
+      const flying = !p.grounded && !p.pipe && !p.climb && (p.flight > 0 || p.wag > 0 || (g.cheats && g.cheats.fly && !p.swimming));
       if (g.mode === 'dying') state = 'dead';
       else if (p.duck) state = 'duck';
+      else if (p.climb) state = 'jump';
       else if (p.tail > 0) state = 'tail';
-      else if (!p.grounded && !p.pipe) state = (p.flight > 0 || p.wag > 0) && p.power !== 'small' ? 'fly' : 'jump';
+      else if (!p.grounded && !p.pipe) state = flying && p.power !== 'small' ? 'fly' : 'jump';
       else if (Math.abs(p.vx) > 8) state = 'walk';
       const dim = MarioSprites.dimensions('mario', p.power);
       const speed = Math.abs(p.vx) > 180 ? 20 : Math.abs(p.vx) > 120 ? 15 : 10;
       const px = p.x - cam - 1, py = p.y + p.h - dim.h;
+      let facing = p.facing;
+      if (p.climb) facing = Math.floor((p.climbStep || 0) * 7) % 2 ? 1 : -1;
+      const frame = state === 'fly' ? (p.flapFx > 0.1 ? 1 : 0) : Math.floor(t * speed) % 3;
+
+      // Postura: esticar no pulo, achatar na aterrissagem, inclinar na corrida e no voo.
+      let rot = 0, kx = 1, ky = 1;
+      if (g.mode === 'playing' && !p.pipe && !p.climb) {
+        if (p.jumpFx > 0) { const k = p.jumpFx / 0.16; ky = 1 + 0.13 * k; kx = 1 - 0.09 * k; }
+        if (p.landFx > 0) { const k = p.landFx / 0.14; ky = 1 - 0.16 * k; kx = 1 + 0.13 * k; }
+        if (flying) {
+          rot = Math.max(-0.34, Math.min(0.24, Math.atan2(p.vy, Math.abs(p.vx) + 70) * 0.6)) * p.facing;
+          if (p.flapFx > 0) ky *= 1 + 0.06 * (p.flapFx / 0.22);
+        } else if (p.wag > 0) rot = Math.sin(t * 34) * 0.06;
+        else if (p.grounded && p.skidding) rot = -p.facing * 0.1;
+        else if (p.grounded && Math.abs(p.vx) > 140) rot = p.facing * 0.07 * Math.min(1, (Math.abs(p.vx) - 140) / 70);
+      }
+
+      // Rastro de imagens quando voa ou corre no P cheio.
+      const trailOn = g.mode === 'playing' && !p.pipe && (flying || (p.pm >= 7 && Math.abs(p.vx) > 180) || p.star > 0);
+      if (this.trailLevel !== g.level) { this.trail = []; this.trailLevel = g.level; }
+      this.trail = this.trail || [];
+      if (trailOn && (this.trailT === undefined || Math.abs(t - this.trailT) > 1 / 30)) {
+        this.trailT = t;
+        this.trail.unshift({ x: p.x, y: py, state, frame, facing, power: p.power, rot, star: p.star > 0 });
+        if (this.trail.length > 5) this.trail.length = 5;
+      } else if (!trailOn && this.trail.length && Math.abs(t - (this.trailT || 0)) > 1 / 30) { this.trailT = t; this.trail.pop(); }
+      const c = this.c;
+      if (this.trail.length > 1 && typeof c.save === 'function') {
+        for (let i = this.trail.length - 1; i >= 1; i--) {
+          const q = this.trail[i];
+          c.save();
+          c.globalAlpha = 0.34 * (1 - i / this.trail.length);
+          this.transformed(q.x - cam - 1 + dim.w / 2, q.y + dim.h, dim.w / 2, dim.h, q.rot, 1, 1, ox => MarioSprites.drawMario(c, ox, -dim.h, { power: q.power, state: q.state, frame: q.frame, facing: q.facing, star: q.star }), q.rot !== 0);
+          c.restore();
+        }
+      }
+
       if (p.star > 0 || (g.cheats && g.cheats.invincible)) {
         const k = Math.floor(t * 12);
         for (let i = 0; i < 3; i++) {
@@ -391,9 +586,17 @@
           this.blit('sparkle', 8, 8, px + 8 + Math.cos(a) * 12 - 4, py + dim.h / 2 + Math.sin(a) * 12 - 4, HD.sparkle, (k + i) % 2 ? 8 : 6, (k + i) % 2 ? 8 : 6);
         }
       }
-      MarioSprites.drawMario(this.c, Math.round(px), Math.round(py), {
-        power: p.power, state, frame: Math.floor(t * speed) % 3, facing: p.facing, star: p.star > 0
-      });
+      if (p.tail > 0 && g.mode === 'playing') {
+        const k = p.tail / 0.25;
+        if (c.save) { c.save(); c.globalAlpha = 0.35 + 0.5 * k; }
+        this.blit('swoosh', 40, 16, px + dim.w / 2 - 20, p.y + p.h - 15, HD.swoosh);
+        if (c.save) c.restore();
+      }
+      if (!blink) {
+        this.transformed(px + dim.w / 2, py + dim.h, dim.w / 2, dim.h, rot, kx, ky, ox => MarioSprites.drawMario(c, ox, -dim.h, {
+          power: p.power, state, frame, facing, star: p.star > 0
+        }), rot !== 0);
+      }
       if (p.carry) this.sprite('shell', p.carry.x - cam, p.carry.y, { facing: p.facing });
     }
 

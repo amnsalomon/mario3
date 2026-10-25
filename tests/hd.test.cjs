@@ -77,6 +77,35 @@ test('toda a arte HD desenha sem erro em várias resoluções, fases e telas', (
         g.projectiles.push({ kind: 'fire', x: g.player.x, y: g.player.y, w: 14, h: 14, mega: true }, { kind: 'flame', x: g.player.x + 30, y: g.player.y, w: 22, h: 8 });
         g.particles.push({ kind: 'dust', x: g.player.x, y: 180, life: 0.2 }, { kind: 'puff', x: g.player.x, y: 160, life: 0.3 }, { kind: 'sparkle', x: 50, y: 50, life: 1 }, { kind: 'debris', x: 60, y: 60, life: 1 }, { kind: 'text', text: '1UP', x: 0, y: 0, life: 1 });
         r.draw(g, 3.3);
+        // céu, pé de feijão, Botão P, voo com rastro e efeitos novos
+        const p = g.player;
+        g.level.vines.push({ x: p.x, w: 8, bottom: 128, top: -100, target: -128 });
+        g.level.switches.push({ x: p.x + 40, y: 112, w: 16, h: 16, base: 128, pressed: false, emerge: 0.5 }, { x: p.x + 60, y: 123, w: 16, h: 5, base: 128, pressed: true, emerge: 0 });
+        g.pTimer = 2.5;
+        g.cameraY = g.level.skyRows ? -120 : 0;
+        p.climb = true;
+        p.climbStep = 0.3;
+        r.draw(g, 3.4);
+        p.climb = false;
+        p.grounded = false;
+        p.flight = 2;
+        p.flapFx = 0.2;
+        p.jumpFx = 0.1;
+        p.vy = -80;
+        p.tail = 0.2;
+        for (let k = 0; k < 8; k++) r.draw(g, 3.5 + k / 20);
+        p.flight = 0;
+        p.grounded = true;
+        p.landFx = 0.1;
+        p.vx = 200;
+        p.pm = 7;
+        r.draw(g, 4);
+        g.particles.push({ kind: 'streak', x: p.x, y: 100, dir: -1, life: 0.2 }, { kind: 'streak', x: p.x, y: 110, dir: 1, life: 0.1 }, { kind: 'gust', x: p.x, y: 120, size: 8, life: 0.2 });
+        g.projectiles.push({ kind: 'spit', x: p.x + 20, y: 100, w: 8, h: 8 });
+        for (const e of g.level.enemies) { if (e.jumper) { e.hidden = false; e.y = 120; e.vyJ = -100; } }
+        r.draw(g, 4.1);
+        g.found = g.level.secrets.slice(0, 1);
+        g.cameraY = 0;
         g.clearStage(g.level.boss ? 'orb' : 'card');
         g.ending.timer = 2.5;
         g.ending.bonus = { lives: 5 };
